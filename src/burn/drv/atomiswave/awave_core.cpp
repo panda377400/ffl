@@ -6,6 +6,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <chrono>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -154,6 +155,21 @@ static GLuint NaomiFrontendColorTexture = 0;
 static GLuint NaomiFrontendDepthStencilBuffer = 0;
 static INT32 NaomiFrontendFramebufferWidth = 0;
 static INT32 NaomiFrontendFramebufferHeight = 0;
+
+// Lightweight performance counters for zzBurnDebug.html.
+// The logs are intentionally throttled to avoid slowing the emulator down.
+static const bool NaomiPerfLoggingEnabled = true;
+static INT32 NaomiPerfFrameCounter = 0;
+static INT32 NaomiPerfDrawCounter = 0;
+static double NaomiPerfContextAccumMs = 0.0;
+static double NaomiPerfRunAccumMs = 0.0;
+static double NaomiPerfCaptureAccumMs = 0.0;
+static double NaomiPerfAudioAccumMs = 0.0;
+static double NaomiPerfTotalAccumMs = 0.0;
+static double NaomiPerfReadPixelsAccumMs = 0.0;
+static double NaomiPerfReadFlipAccumMs = 0.0;
+static double NaomiPerfDrawAccumMs = 0.0;
+static INT32 NaomiPerfReadPixelsSamples = 0;
 
 static bool NaomiActivateHwRender();
 
@@ -828,6 +844,79 @@ static void NaomiLogPrintf(enum retro_log_level level, const char* fmt, ...)
 	bprintf(0, _T("%S"), buffer);
 }
 
+static double NaomiNowMs()
+{
+	using Clock = std::chrono::steady_clock;
+	static const Clock::time_point start = Clock::now();
+	return std::chrono::duration<double, std::milli>(Clock::now() - start).count();
+}
+
+static void NaomiLogBuildConfigOnce()
+{
+	static bool logged = false;
+	if (logged) {
+		return;
+	}
+	logged = true;
+
+	bprintf(0, _T("AWAVE profile: build/runtime diagnostics enabled\n"));
+
+#if defined(TARGET_WIN64)
+	bprintf(0, _T("AWAVE profile: TARGET_WIN64=1\n"));
+#else
+	bprintf(0, _T("AWAVE profile WARNING: TARGET_WIN64 is not defined\n"));
+#endif
+
+#if defined(TARGET_NO_THREADS)
+	bprintf(0, _T("AWAVE profile WARNING: TARGET_NO_THREADS=1, threaded rendering option cannot help\n"));
+#else
+	bprintf(0, _T("AWAVE profile: TARGET_NO_THREADS=0\n"));
+#endif
+
+#if defined(TARGET_NO_REC)
+	bprintf(0, _T("AWAVE profile WARNING: TARGET_NO_REC=1, dynarec is disabled\n"));
+#else
+	bprintf(0, _T("AWAVE profile: TARGET_NO_REC=0\n"));
+#endif
+
+#if defined(HAVE_OPENGL)
+	bprintf(0, _T("AWAVE profile: HAVE_OPENGL=1\n"));
+#else
+	bprintf(0, _T("AWAVE profile WARNING: HAVE_OPENGL is not defined\n"));
+#endif
+
+#if defined(HAVE_GL3)
+	bprintf(0, _T("AWAVE profile: HAVE_GL3=1\n"));
+#endif
+
+#if defined(HAVE_GL4)
+	bprintf(0, _T("AWAVE profile: HAVE_GL4=1\n"));
+#endif
+
+#if defined(HAVE_OIT)
+	bprintf(0, _T("AWAVE profile: HAVE_OIT=1\n"));
+#endif
+}
+
+static void NaomiLogGlInfoOnce(const char* stage)
+{
+	static bool logged = false;
+	if (logged) {
+		return;
+	}
+	logged = true;
+
+	const char* vendor = reinterpret_cast<const char*>(glGetString(GL_VENDOR));
+	const char* renderer = reinterpret_cast<const char*>(glGetString(GL_RENDERER));
+	const char* version = reinterpret_cast<const char*>(glGetString(GL_VERSION));
+
+	bprintf(0, _T("AWAVE profile: GL stage=%S vendor=%S renderer=%S version=%S\n"),
+		stage ? stage : "unknown",
+		vendor ? vendor : "null",
+		renderer ? renderer : "null",
+		version ? version : "null");
+}
+
 static bool NaomiClearThreadWaitsCallback(unsigned, void*)
 {
 	return true;
@@ -1015,7 +1104,6 @@ static bool NaomiReadHardwareVideo(unsigned width, unsigned height)
 	if (NaomiHardwareVideoScratch.size() != framePixels) {
 		NaomiHardwareVideoScratch.resize(framePixels);
 	}
-	// glReadPixels overwrites the whole scratch buffer; clearing it every frame costs CPU bandwidth.
 
 	GLint previousFramebuffer = 0;
 	GLint previousReadBuffer = GL_BACK;
@@ -1034,8 +1122,14 @@ static bool NaomiReadHardwareVideo(unsigned width, unsigned height)
 	glPixelStorei(GL_PACK_ALIGNMENT, 1);
 	while (glGetError() != GL_NO_ERROR) {
 	}
+	const double readPixelsStartMs = NaomiNowMs();
 	glReadPixels(0, 0, (GLsizei)width, (GLsizei)height, GL_BGRA, GL_UNSIGNED_BYTE, NaomiHardwareVideoScratch.data());
+	const double readPixelsEndMs = NaomiNowMs();
 	const GLenum readError = glGetError();
+	if (NaomiPerfLoggingEnabled) {
+		NaomiPerfReadPixelsAccumMs += (readPixelsEndMs - readPixelsStartMs);
+		NaomiPerfReadPixelsSamples++;
+	}
 	if (NaomiGlFramebufferFns.bindFramebuffer != NULL) {
 		NaomiGlFramebufferFns.bindFramebuffer(GL_FRAMEBUFFER, (GLuint)previousFramebuffer);
 	} else {
@@ -1067,10 +1161,14 @@ static bool NaomiReadHardwareVideo(unsigned width, unsigned height)
 		NaomiVideo.resize(framePixels);
 	}
 
+	const double flipStartMs = NaomiNowMs();
 	for (unsigned y = 0; y < height; y++) {
 		const UINT32* srcRow = NaomiHardwareVideoScratch.data() + ((size_t)(height - 1 - y) * (size_t)width);
 		UINT32* dstRow = NaomiVideo.data() + ((size_t)y * (size_t)width);
 		memcpy(dstRow, srcRow, (size_t)width * sizeof(UINT32));
+	}
+	if (NaomiPerfLoggingEnabled) {
+		NaomiPerfReadFlipAccumMs += (NaomiNowMs() - flipStartMs);
 	}
 
 	NaomiAcceptedVideoFrames++;
@@ -1397,6 +1495,10 @@ INT32 NaomiCoreInit(const NaomiGameConfig* config)
 		return 1;
 	}
 	OGLSetUseFallbackContext(true);
+	NaomiLogBuildConfigOnce();
+	OGLMakeCurrentContext();
+	NaomiLogGlInfoOnce("fallback-init");
+	OGLDoneCurrentContext();
 
 	NaomiBuildTempPaths();
 	if (NaomiBuildContentZip()) {
@@ -1487,6 +1589,7 @@ INT32 NaomiCoreFrame()
 	}
 
 	const bool useHwContext = NaomiHwRenderRequested || NaomiHwRenderReady;
+	const double frameStartMs = NaomiNowMs();
 
 	NaomiVideoFromCallback = false;
 	NaomiVideoReadPending = false;
@@ -1494,19 +1597,81 @@ INT32 NaomiCoreFrame()
 	// Clearing the FBO every frame causes flickering when Flycast produces
 	// RTT/intermediate frames or when video read timing is earlier than final render.
 	// Now we keep the previous frame content until a valid new frame is rendered.
+	double contextMs = 0.0;
 	if (useHwContext) {
+		const double contextStartMs = NaomiNowMs();
 		OGLMakeCurrentContext();
+		contextMs += NaomiNowMs() - contextStartMs;
 		// No longer clearing the frontend FBO - let Flycast render on top of previous frame
 	}
+
+	const double runStartMs = NaomiNowMs();
 	flycast_retro_run();
+	const double runMs = NaomiNowMs() - runStartMs;
+
+	const double captureStartMs = NaomiNowMs();
 	NaomiCaptureVideo();
+	const double captureMs = NaomiNowMs() - captureStartMs;
+
 	if (useHwContext) {
+		const double contextStartMs = NaomiNowMs();
 		OGLDoneCurrentContext();
+		contextMs += NaomiNowMs() - contextStartMs;
 	}
+
+	const double audioStartMs = NaomiNowMs();
 	flycast_retro_audio_upload();
 	NaomiDrainAudio();
+	const double audioMs = NaomiNowMs() - audioStartMs;
+
 	if (NaomiAudioWarmupFrames > 0) {
 		NaomiAudioWarmupFrames--;
+	}
+
+	if (NaomiPerfLoggingEnabled) {
+		NaomiPerfFrameCounter++;
+		NaomiPerfContextAccumMs += contextMs;
+		NaomiPerfRunAccumMs += runMs;
+		NaomiPerfCaptureAccumMs += captureMs;
+		NaomiPerfAudioAccumMs += audioMs;
+		NaomiPerfTotalAccumMs += (NaomiNowMs() - frameStartMs);
+
+		if ((NaomiPerfFrameCounter % 120) == 0) {
+			size_t queuedFrames = 0;
+			{
+				std::lock_guard<std::mutex> lock(NaomiAudioMutex);
+				if (NaomiAudioReadOffset < NaomiAudio.size()) {
+					queuedFrames = (NaomiAudio.size() - NaomiAudioReadOffset) / 2;
+				}
+			}
+
+			const double divisor = 120.0;
+			const double readDivisor = (NaomiPerfReadPixelsSamples > 0) ? (double)NaomiPerfReadPixelsSamples : 1.0;
+			bprintf(0, _T("AWAVE profile frame=%d hwReq=%d hwReady=%d video=%dx%d accepted=%d audioQueued=%d avg: total=%0.3f ctx=%0.3f run=%0.3f capture=%0.3f readpix=%0.3f flip=%0.3f audio=%0.3f ms\n"),
+				NaomiPerfFrameCounter,
+				NaomiHwRenderRequested ? 1 : 0,
+				NaomiHwRenderReady ? 1 : 0,
+				NaomiVideoWidth,
+				NaomiVideoHeight,
+				NaomiAcceptedVideoFrames,
+				(INT32)queuedFrames,
+				NaomiPerfTotalAccumMs / divisor,
+				NaomiPerfContextAccumMs / divisor,
+				NaomiPerfRunAccumMs / divisor,
+				NaomiPerfCaptureAccumMs / divisor,
+				NaomiPerfReadPixelsAccumMs / readDivisor,
+				NaomiPerfReadFlipAccumMs / readDivisor,
+				NaomiPerfAudioAccumMs / divisor);
+
+			NaomiPerfContextAccumMs = 0.0;
+			NaomiPerfRunAccumMs = 0.0;
+			NaomiPerfCaptureAccumMs = 0.0;
+			NaomiPerfAudioAccumMs = 0.0;
+			NaomiPerfTotalAccumMs = 0.0;
+			NaomiPerfReadPixelsAccumMs = 0.0;
+			NaomiPerfReadFlipAccumMs = 0.0;
+			NaomiPerfReadPixelsSamples = 0;
+		}
 	}
 
 	return 0;
@@ -1518,6 +1683,8 @@ INT32 NaomiCoreDraw()
 		return 0;
 	}
 
+	const double drawStartMs = NaomiNowMs();
+
 	if (NaomiVideo.empty()) {
 		memset(pBurnDraw, 0, (size_t)nBurnPitch * 480U);
 		return 0;
@@ -1527,8 +1694,6 @@ INT32 NaomiCoreDraw()
 	const INT32 drawWidth = std::max<INT32>(0, std::min(NaomiVideoWidth, dstWidth));
 	const INT32 drawHeight = std::max<INT32>(0, std::min(NaomiVideoHeight, 480));
 
-	// Avoid clearing the whole FBNeo draw buffer when the Flycast frame fully covers it.
-	// This saves one full-frame memory write per frame on the common 640x480 path.
 	if (drawWidth < dstWidth || drawHeight < 480) {
 		memset(pBurnDraw, 0, (size_t)nBurnPitch * 480U);
 	}
@@ -1562,6 +1727,24 @@ INT32 NaomiCoreDraw()
 			INT32 g = (pixel >> 8) & 0xff;
 			INT32 b = pixel & 0xff;
 			PutPix(dst + (x * nBurnBpp), BurnHighCol(r, g, b, 0));
+		}
+	}
+
+	if (NaomiPerfLoggingEnabled) {
+		NaomiPerfDrawCounter++;
+		NaomiPerfDrawAccumMs += (NaomiNowMs() - drawStartMs);
+		if ((NaomiPerfDrawCounter % 120) == 0) {
+			bprintf(0, _T("AWAVE profile draw=%d avg: draw=%0.3f ms bpp=%d pitch=%d dstWidth=%d draw=%dx%d direct32=%d rgb565=%d\n"),
+				NaomiPerfDrawCounter,
+				NaomiPerfDrawAccumMs / 120.0,
+				nBurnBpp,
+				nBurnPitch,
+				dstWidth,
+				drawWidth,
+				drawHeight,
+				directRgb32 ? 1 : 0,
+				fastRgb565 ? 1 : 0);
+			NaomiPerfDrawAccumMs = 0.0;
 		}
 	}
 
