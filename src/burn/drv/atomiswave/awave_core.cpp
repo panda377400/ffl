@@ -6,6 +6,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <cstddef>
 #include <chrono>
 #include <mutex>
 #include <string>
@@ -69,6 +70,22 @@
 
 #ifndef GL_RENDERBUFFER_BINDING
 #define GL_RENDERBUFFER_BINDING 0x8CA7
+#endif
+
+#ifndef GL_PIXEL_PACK_BUFFER
+#define GL_PIXEL_PACK_BUFFER 0x88EB
+#endif
+
+#ifndef GL_PIXEL_PACK_BUFFER_BINDING
+#define GL_PIXEL_PACK_BUFFER_BINDING 0x88ED
+#endif
+
+#ifndef GL_STREAM_READ
+#define GL_STREAM_READ 0x88E1
+#endif
+
+#ifndef GL_READ_ONLY
+#define GL_READ_ONLY 0x88B8
 #endif
 
 extern "C" {
@@ -156,6 +173,19 @@ static GLuint NaomiFrontendDepthStencilBuffer = 0;
 static INT32 NaomiFrontendFramebufferWidth = 0;
 static INT32 NaomiFrontendFramebufferHeight = 0;
 
+// Async readback through Pixel Buffer Objects.
+// This keeps glReadPixels from forcing a full GPU/CPU sync on the same frame.
+// It intentionally adds two frames of video latency, which is much cheaper than
+// stalling the emulator for 4-8 ms every frame.
+static const INT32 NaomiReadbackPboCount = 3;
+static GLuint NaomiReadbackPbos[NaomiReadbackPboCount] = { 0, 0, 0 };
+static bool NaomiReadbackPboValid[NaomiReadbackPboCount] = { false, false, false };
+static INT32 NaomiReadbackPboIndex = 0;
+static INT32 NaomiReadbackPboWidth = 0;
+static INT32 NaomiReadbackPboHeight = 0;
+static size_t NaomiReadbackPboBytes = 0;
+static bool NaomiReadbackPboAvailableLogged = false;
+
 // Lightweight performance counters for zzBurnDebug.html.
 // The logs are intentionally throttled to avoid slowing the emulator down.
 static const bool NaomiPerfLoggingEnabled = true;
@@ -172,6 +202,7 @@ static double NaomiPerfDrawAccumMs = 0.0;
 static INT32 NaomiPerfReadPixelsSamples = 0;
 
 static bool NaomiActivateHwRender();
+static void NaomiResetReadbackPboState();
 
 typedef void (APIENTRY *NaomiPFNGLGENFRAMEBUFFERSPROC)(GLsizei, GLuint*);
 typedef void (APIENTRY *NaomiPFNGLBINDFRAMEBUFFERPROC)(GLenum, GLuint);
@@ -198,6 +229,24 @@ struct NaomiFramebufferFns {
 };
 
 static NaomiFramebufferFns NaomiGlFramebufferFns = {};
+
+typedef void (APIENTRY *NaomiPFNGLGENBUFFERSPROC)(GLsizei, GLuint*);
+typedef void (APIENTRY *NaomiPFNGLBINDBUFFERPROC)(GLenum, GLuint);
+typedef void (APIENTRY *NaomiPFNGLBUFFERDATAPROC)(GLenum, std::ptrdiff_t, const void*, GLenum);
+typedef void* (APIENTRY *NaomiPFNGLMAPBUFFERPROC)(GLenum, GLenum);
+typedef GLboolean (APIENTRY *NaomiPFNGLUNMAPBUFFERPROC)(GLenum);
+typedef void (APIENTRY *NaomiPFNGLDELETEBUFFERSPROC)(GLsizei, const GLuint*);
+
+struct NaomiPboFns {
+	NaomiPFNGLGENBUFFERSPROC genBuffers;
+	NaomiPFNGLBINDBUFFERPROC bindBuffer;
+	NaomiPFNGLBUFFERDATAPROC bufferData;
+	NaomiPFNGLMAPBUFFERPROC mapBuffer;
+	NaomiPFNGLUNMAPBUFFERPROC unmapBuffer;
+	NaomiPFNGLDELETEBUFFERSPROC deleteBuffers;
+};
+
+static NaomiPboFns NaomiGlPboFns = {};
 
 struct NaomiZipRecord {
 	const char* filename;
@@ -434,6 +483,7 @@ static void NaomiClearRuntimeState()
 	memset(NaomiLightgunReload, 0, sizeof(NaomiLightgunReload));
 	fbneo_awave_reset_present_filter();
 	rend_reset_fb_clear_flag();
+	NaomiResetReadbackPboState();
 }
 
 static void NaomiResetFrameState()
@@ -481,8 +531,107 @@ static bool NaomiLoadFramebufferFns()
 		&& NaomiGlFramebufferFns.framebufferRenderbuffer != NULL;
 }
 
+
+static bool NaomiLoadPboFns()
+{
+	if (NaomiGlPboFns.bindBuffer != NULL) {
+		return true;
+	}
+
+	NaomiGlPboFns.genBuffers = NaomiGetGlProc<NaomiPFNGLGENBUFFERSPROC>("glGenBuffers", "glGenBuffersARB");
+	NaomiGlPboFns.bindBuffer = NaomiGetGlProc<NaomiPFNGLBINDBUFFERPROC>("glBindBuffer", "glBindBufferARB");
+	NaomiGlPboFns.bufferData = NaomiGetGlProc<NaomiPFNGLBUFFERDATAPROC>("glBufferData", "glBufferDataARB");
+	NaomiGlPboFns.mapBuffer = NaomiGetGlProc<NaomiPFNGLMAPBUFFERPROC>("glMapBuffer", "glMapBufferARB");
+	NaomiGlPboFns.unmapBuffer = NaomiGetGlProc<NaomiPFNGLUNMAPBUFFERPROC>("glUnmapBuffer", "glUnmapBufferARB");
+	NaomiGlPboFns.deleteBuffers = NaomiGetGlProc<NaomiPFNGLDELETEBUFFERSPROC>("glDeleteBuffers", "glDeleteBuffersARB");
+
+	return NaomiGlPboFns.genBuffers != NULL
+		&& NaomiGlPboFns.bindBuffer != NULL
+		&& NaomiGlPboFns.bufferData != NULL
+		&& NaomiGlPboFns.mapBuffer != NULL
+		&& NaomiGlPboFns.unmapBuffer != NULL
+		&& NaomiGlPboFns.deleteBuffers != NULL;
+}
+
+static void NaomiResetReadbackPboState()
+{
+	for (INT32 i = 0; i < NaomiReadbackPboCount; i++) {
+		NaomiReadbackPboValid[i] = false;
+	}
+	NaomiReadbackPboIndex = 0;
+}
+
+static void NaomiDestroyReadbackPbos()
+{
+	if (NaomiGlPboFns.deleteBuffers != NULL) {
+		NaomiGlPboFns.deleteBuffers(NaomiReadbackPboCount, NaomiReadbackPbos);
+	}
+
+	for (INT32 i = 0; i < NaomiReadbackPboCount; i++) {
+		NaomiReadbackPbos[i] = 0;
+		NaomiReadbackPboValid[i] = false;
+	}
+
+	NaomiReadbackPboIndex = 0;
+	NaomiReadbackPboWidth = 0;
+	NaomiReadbackPboHeight = 0;
+	NaomiReadbackPboBytes = 0;
+}
+
+static bool NaomiEnsureReadbackPbos(unsigned width, unsigned height)
+{
+	if (width == 0 || height == 0 || !NaomiLoadPboFns()) {
+		return false;
+	}
+
+	const size_t bytes = (size_t)width * (size_t)height * sizeof(UINT32);
+	if (NaomiReadbackPbos[0] != 0
+		&& NaomiReadbackPboWidth == (INT32)width
+		&& NaomiReadbackPboHeight == (INT32)height
+		&& NaomiReadbackPboBytes == bytes) {
+		return true;
+	}
+
+	GLint previousPackBuffer = 0;
+	glGetIntegerv(GL_PIXEL_PACK_BUFFER_BINDING, &previousPackBuffer);
+
+	NaomiDestroyReadbackPbos();
+
+	NaomiGlPboFns.genBuffers(NaomiReadbackPboCount, NaomiReadbackPbos);
+	for (INT32 i = 0; i < NaomiReadbackPboCount; i++) {
+		if (NaomiReadbackPbos[i] == 0) {
+			NaomiGlPboFns.bindBuffer(GL_PIXEL_PACK_BUFFER, (GLuint)previousPackBuffer);
+			NaomiDestroyReadbackPbos();
+			return false;
+		}
+		NaomiGlPboFns.bindBuffer(GL_PIXEL_PACK_BUFFER, NaomiReadbackPbos[i]);
+		NaomiGlPboFns.bufferData(GL_PIXEL_PACK_BUFFER, (std::ptrdiff_t)bytes, NULL, GL_STREAM_READ);
+		NaomiReadbackPboValid[i] = false;
+	}
+
+	NaomiGlPboFns.bindBuffer(GL_PIXEL_PACK_BUFFER, (GLuint)previousPackBuffer);
+
+	NaomiReadbackPboIndex = 0;
+	NaomiReadbackPboWidth = (INT32)width;
+	NaomiReadbackPboHeight = (INT32)height;
+	NaomiReadbackPboBytes = bytes;
+
+	if (!NaomiReadbackPboAvailableLogged) {
+		NaomiReadbackPboAvailableLogged = true;
+		bprintf(0, _T("AWAVE profile: async PBO readback enabled (%d buffers, %dx%d)\n"),
+			NaomiReadbackPboCount,
+			(INT32)width,
+			(INT32)height);
+	}
+
+	return true;
+}
+
+
 static void NaomiDestroyFrontendFramebuffer()
 {
+	NaomiDestroyReadbackPbos();
+
 	if (!NaomiUseFrontendFramebuffer) {
 		NaomiFrontendFramebuffer = 0;
 		NaomiFrontendColorTexture = 0;
@@ -1101,14 +1250,18 @@ static bool NaomiReadHardwareVideo(unsigned width, unsigned height)
 	NaomiVideoHeight = (INT32)height;
 	NaomiVideoStride = (INT32)width;
 	const size_t framePixels = (size_t)width * (size_t)height;
+	const size_t frameBytes = framePixels * sizeof(UINT32);
 	if (NaomiHardwareVideoScratch.size() != framePixels) {
 		NaomiHardwareVideoScratch.resize(framePixels);
 	}
 
 	GLint previousFramebuffer = 0;
 	GLint previousReadBuffer = GL_BACK;
+	GLint previousPackBuffer = 0;
 	glGetIntegerv(GL_FRAMEBUFFER_BINDING, &previousFramebuffer);
 	glGetIntegerv(GL_READ_BUFFER, &previousReadBuffer);
+	glGetIntegerv(GL_PIXEL_PACK_BUFFER_BINDING, &previousPackBuffer);
+
 	if (NaomiUseFrontendFramebuffer && NaomiFrontendFramebuffer != 0 && NaomiGlFramebufferFns.bindFramebuffer != NULL) {
 		NaomiGlFramebufferFns.bindFramebuffer(GL_FRAMEBUFFER, NaomiFrontendFramebuffer);
 		glReadBuffer(GL_COLOR_ATTACHMENT0);
@@ -1122,21 +1275,60 @@ static bool NaomiReadHardwareVideo(unsigned width, unsigned height)
 	glPixelStorei(GL_PACK_ALIGNMENT, 1);
 	while (glGetError() != GL_NO_ERROR) {
 	}
+
+	bool gotFrame = false;
+	GLenum readError = GL_NO_ERROR;
+	const bool usePboReadback = NaomiEnsureReadbackPbos(width, height);
+
 	const double readPixelsStartMs = NaomiNowMs();
-	glReadPixels(0, 0, (GLsizei)width, (GLsizei)height, GL_BGRA, GL_UNSIGNED_BYTE, NaomiHardwareVideoScratch.data());
+	if (usePboReadback) {
+		const INT32 issueIndex = NaomiReadbackPboIndex;
+		const INT32 mapIndex = (issueIndex + 1) % NaomiReadbackPboCount; // two frames older with a 3-buffer ring
+
+		// Orphan the PBO before issuing a new read. This is the key part that
+		// avoids waiting for the GPU to finish using the same buffer.
+		NaomiGlPboFns.bindBuffer(GL_PIXEL_PACK_BUFFER, NaomiReadbackPbos[issueIndex]);
+		NaomiGlPboFns.bufferData(GL_PIXEL_PACK_BUFFER, (std::ptrdiff_t)frameBytes, NULL, GL_STREAM_READ);
+		glReadPixels(0, 0, (GLsizei)width, (GLsizei)height, GL_BGRA, GL_UNSIGNED_BYTE, 0);
+		readError = glGetError();
+		NaomiReadbackPboValid[issueIndex] = (readError == GL_NO_ERROR);
+
+		// Read back an older PBO instead of the one we just filled.
+		// This intentionally trades two frames of latency for much lower stalls.
+		NaomiGlPboFns.bindBuffer(GL_PIXEL_PACK_BUFFER, NaomiReadbackPbos[mapIndex]);
+		if (NaomiReadbackPboValid[mapIndex]) {
+			void* mapped = NaomiGlPboFns.mapBuffer(GL_PIXEL_PACK_BUFFER, GL_READ_ONLY);
+			if (mapped != NULL) {
+				memcpy(NaomiHardwareVideoScratch.data(), mapped, frameBytes);
+				gotFrame = (NaomiGlPboFns.unmapBuffer(GL_PIXEL_PACK_BUFFER) == GL_TRUE);
+			}
+		}
+
+		NaomiGlPboFns.bindBuffer(GL_PIXEL_PACK_BUFFER, (GLuint)previousPackBuffer);
+		NaomiReadbackPboIndex = (issueIndex + 1) % NaomiReadbackPboCount;
+	} else {
+		glReadPixels(0, 0, (GLsizei)width, (GLsizei)height, GL_BGRA, GL_UNSIGNED_BYTE, NaomiHardwareVideoScratch.data());
+		readError = glGetError();
+		gotFrame = (readError == GL_NO_ERROR);
+	}
 	const double readPixelsEndMs = NaomiNowMs();
-	const GLenum readError = glGetError();
+
 	if (NaomiPerfLoggingEnabled) {
 		NaomiPerfReadPixelsAccumMs += (readPixelsEndMs - readPixelsStartMs);
 		NaomiPerfReadPixelsSamples++;
 	}
+
 	if (NaomiGlFramebufferFns.bindFramebuffer != NULL) {
 		NaomiGlFramebufferFns.bindFramebuffer(GL_FRAMEBUFFER, (GLuint)previousFramebuffer);
 	} else {
 		return false;
 	}
 	glReadBuffer(previousReadBuffer);
-	if (readError != GL_NO_ERROR) {
+	if (NaomiGlPboFns.bindBuffer != NULL) {
+		NaomiGlPboFns.bindBuffer(GL_PIXEL_PACK_BUFFER, (GLuint)previousPackBuffer);
+	}
+
+	if (readError != GL_NO_ERROR || !gotFrame) {
 		return false;
 	}
 
@@ -1174,6 +1366,8 @@ static bool NaomiReadHardwareVideo(unsigned width, unsigned height)
 	NaomiAcceptedVideoFrames++;
 	return true;
 }
+
+
 
 static bool NaomiEnvironmentCallback(unsigned cmd, void* data)
 {
@@ -1647,10 +1841,11 @@ INT32 NaomiCoreFrame()
 
 			const double divisor = 120.0;
 			const double readDivisor = (NaomiPerfReadPixelsSamples > 0) ? (double)NaomiPerfReadPixelsSamples : 1.0;
-			bprintf(0, _T("AWAVE profile frame=%d hwReq=%d hwReady=%d video=%dx%d accepted=%d audioQueued=%d avg: total=%0.3f ctx=%0.3f run=%0.3f capture=%0.3f readpix=%0.3f flip=%0.3f audio=%0.3f ms\n"),
+			bprintf(0, _T("AWAVE profile frame=%d hwReq=%d hwReady=%d pbo=%d video=%dx%d accepted=%d audioQueued=%d avg: total=%0.3f ctx=%0.3f run=%0.3f capture=%0.3f readpix=%0.3f flip=%0.3f audio=%0.3f ms\n"),
 				NaomiPerfFrameCounter,
 				NaomiHwRenderRequested ? 1 : 0,
 				NaomiHwRenderReady ? 1 : 0,
+				(NaomiReadbackPbos[0] != 0) ? 1 : 0,
 				NaomiVideoWidth,
 				NaomiVideoHeight,
 				NaomiAcceptedVideoFrames,
