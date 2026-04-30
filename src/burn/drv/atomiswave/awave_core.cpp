@@ -797,15 +797,15 @@ static const char* NaomiGetOptionValue(const char* key)
 	if (!strcmp(key, "reicast_digital_triggers")) return "disabled";
 	if (!strcmp(key, "reicast_enable_rttb")) return "enabled";
 	if (!strcmp(key, "reicast_render_to_texture_upscaling")) return "1x";
-	if (!strcmp(key, "reicast_alpha_sorting")) return "per-pixel (accurate)";
-	if (!strcmp(key, "reicast_threaded_rendering")) return "disabled";
+	if (!strcmp(key, "reicast_alpha_sorting")) return "per-strip (fast, least accurate)";
+	if (!strcmp(key, "reicast_threaded_rendering")) return "enabled";
 	if (!strcmp(key, "reicast_synchronous_rendering")) return "disabled";
 	if (!strcmp(key, "reicast_allow_service_buttons")) return "enabled";
 	if (!strcmp(key, "reicast_screen_rotation")) return "horizontal";
 	if (!strcmp(key, "flycast_enable_rttb")) return "enabled";
 	if (!strcmp(key, "flycast_render_to_texture_upscaling")) return "1x";
-	if (!strcmp(key, "flycast_alpha_sorting")) return "per-pixel (accurate)";
-	if (!strcmp(key, "flycast_threaded_rendering")) return "disabled";
+	if (!strcmp(key, "flycast_alpha_sorting")) return "per-strip (fast, least accurate)";
+	if (!strcmp(key, "flycast_threaded_rendering")) return "enabled";
 	if (!strcmp(key, "flycast_synchronous_rendering")) return "disabled";
 
 	return NULL;
@@ -1015,7 +1015,7 @@ static bool NaomiReadHardwareVideo(unsigned width, unsigned height)
 	if (NaomiHardwareVideoScratch.size() != framePixels) {
 		NaomiHardwareVideoScratch.resize(framePixels);
 	}
-	memset(NaomiHardwareVideoScratch.data(), 0, framePixels * sizeof(UINT32));
+	// glReadPixels overwrites the whole scratch buffer; clearing it every frame costs CPU bandwidth.
 
 	GLint previousFramebuffer = 0;
 	GLint previousReadBuffer = GL_BACK;
@@ -1527,7 +1527,11 @@ INT32 NaomiCoreDraw()
 	const INT32 drawWidth = std::max<INT32>(0, std::min(NaomiVideoWidth, dstWidth));
 	const INT32 drawHeight = std::max<INT32>(0, std::min(NaomiVideoHeight, 480));
 
-	memset(pBurnDraw, 0, (size_t)nBurnPitch * 480U);
+	// Avoid clearing the whole FBNeo draw buffer when the Flycast frame fully covers it.
+	// This saves one full-frame memory write per frame on the common 640x480 path.
+	if (drawWidth < dstWidth || drawHeight < 480) {
+		memset(pBurnDraw, 0, (size_t)nBurnPitch * 480U);
+	}
 
 	const bool directRgb32 = (nBurnBpp >= 4)
 		&& BurnHighCol(0x12, 0x34, 0x56, 0) == 0x00123456
