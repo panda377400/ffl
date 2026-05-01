@@ -960,18 +960,58 @@ static const char* NaomiGetOptionValue(const char* key)
 	if (!strcmp(key, "reicast_analog_stick_deadzone")) return "15";
 	if (!strcmp(key, "reicast_trigger_deadzone")) return "0";
 	if (!strcmp(key, "reicast_digital_triggers")) return "disabled";
+	// CPU/JIT path. These keys are only requested by cores that expose the option.
+	// Returning them here is harmless for older cores that never ask for them.
+	if (!strcmp(key, "reicast_cpu_mode")) return "dynamic_recompiler";
+	if (!strcmp(key, "flycast_cpu_mode")) return "dynamic_recompiler";
+
+	// Keep RTTB enabled in this test because some NAOMI/Atomiswave effects depend on it.
+	// A separate RTTB-off test can be used later if a specific title is still slow.
 	if (!strcmp(key, "reicast_enable_rttb")) return "enabled";
 	if (!strcmp(key, "reicast_render_to_texture_upscaling")) return "1x";
 	if (!strcmp(key, "reicast_alpha_sorting")) return "per-strip (fast, least accurate)";
 	if (!strcmp(key, "reicast_threaded_rendering")) return "enabled";
 	if (!strcmp(key, "reicast_synchronous_rendering")) return "disabled";
+	if (!strcmp(key, "reicast_delay_frame_swapping")) return "disabled";
+	if (!strcmp(key, "reicast_frame_skipping")) return "disabled";
 	if (!strcmp(key, "reicast_allow_service_buttons")) return "enabled";
 	if (!strcmp(key, "reicast_screen_rotation")) return "horizontal";
+
+	// Low-end/performance-oriented video/audio options.
+	if (!strcmp(key, "reicast_enable_dsp")) return "disabled";
+	if (!strcmp(key, "reicast_anisotropic_filtering")) return "disabled";
+	if (!strcmp(key, "reicast_pvr2_filtering")) return "disabled";
+	if (!strcmp(key, "reicast_mipmapping")) return "disabled";
+	if (!strcmp(key, "reicast_fog")) return "enabled";
+	if (!strcmp(key, "reicast_volume_modifier_enable")) return "disabled";
+	if (!strcmp(key, "reicast_widescreen_hack")) return "disabled";
+	if (!strcmp(key, "reicast_widescreen_cheats")) return "disabled";
+	if (!strcmp(key, "reicast_emulate_framebuffer")) return "disabled";
+	if (!strcmp(key, "reicast_texupscale")) return "disabled";
+	if (!strcmp(key, "reicast_custom_textures")) return "disabled";
+	if (!strcmp(key, "reicast_dump_textures")) return "disabled";
+
 	if (!strcmp(key, "flycast_enable_rttb")) return "enabled";
 	if (!strcmp(key, "flycast_render_to_texture_upscaling")) return "1x";
 	if (!strcmp(key, "flycast_alpha_sorting")) return "per-strip (fast, least accurate)";
 	if (!strcmp(key, "flycast_threaded_rendering")) return "enabled";
 	if (!strcmp(key, "flycast_synchronous_rendering")) return "disabled";
+	if (!strcmp(key, "flycast_delay_frame_swapping")) return "disabled";
+	if (!strcmp(key, "flycast_frame_skipping")) return "disabled";
+
+	// Low-end/performance-oriented video/audio options.
+	if (!strcmp(key, "flycast_enable_dsp")) return "disabled";
+	if (!strcmp(key, "flycast_anisotropic_filtering")) return "disabled";
+	if (!strcmp(key, "flycast_pvr2_filtering")) return "disabled";
+	if (!strcmp(key, "flycast_mipmapping")) return "disabled";
+	if (!strcmp(key, "flycast_fog")) return "enabled";
+	if (!strcmp(key, "flycast_volume_modifier_enable")) return "disabled";
+	if (!strcmp(key, "flycast_widescreen_hack")) return "disabled";
+	if (!strcmp(key, "flycast_widescreen_cheats")) return "disabled";
+	if (!strcmp(key, "flycast_emulate_framebuffer")) return "disabled";
+	if (!strcmp(key, "flycast_texupscale")) return "disabled";
+	if (!strcmp(key, "flycast_custom_textures")) return "disabled";
+	if (!strcmp(key, "flycast_dump_textures")) return "disabled";
 
 	return NULL;
 }
@@ -1064,6 +1104,24 @@ static void NaomiLogGlInfoOnce(const char* stage)
 		vendor ? vendor : "null",
 		renderer ? renderer : "null",
 		version ? version : "null");
+}
+
+
+static bool NaomiShouldLogOptionOnce(const char* key)
+{
+	if (key == NULL) {
+		return false;
+	}
+
+	static std::vector<std::string> loggedKeys;
+	for (size_t i = 0; i < loggedKeys.size(); i++) {
+		if (loggedKeys[i] == key) {
+			return false;
+		}
+	}
+
+	loggedKeys.push_back(key);
+	return true;
 }
 
 static bool NaomiClearThreadWaitsCallback(unsigned, void*)
@@ -1404,6 +1462,11 @@ static bool NaomiEnvironmentCallback(unsigned cmd, void* data)
 			struct retro_variable* var = (struct retro_variable*)data;
 			if (var == NULL) return false;
 			var->value = NaomiGetOptionValue(var->key);
+			if (NaomiShouldLogOptionOnce(var->key)) {
+				bprintf(0, _T("AWAVE option: %S = %S\n"),
+					var->key ? var->key : "null",
+					var->value ? var->value : "<frontend/default>");
+			}
 			return (var->value != NULL);
 		}
 
