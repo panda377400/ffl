@@ -1,4 +1,4 @@
-#include "burnint.h"
+﻿#include "burnint.h"
 #include "awave_core.h"
 
 #include <algorithm>
@@ -153,6 +153,9 @@ static INT32 NaomiVideoStartupSkipReads = 0;
 static INT32 NaomiAcceptedVideoFrames = 0;
 static size_t NaomiAudioReadOffset = 0;
 static INT32 NaomiAudioWarmupFrames = 0;
+static double NaomiAudioSourcePos = 0.0;
+static INT32 NaomiAudioSampleRate = 44100;
+static INT16 NaomiAudioLastSample[2] = { 0, 0 };
 static INT32 NaomiVideoWarmupReads = 0;
 static char NaomiTempRoot[1024];
 static char NaomiLegacyTempRoot[1024];
@@ -188,7 +191,15 @@ static bool NaomiReadbackPboAvailableLogged = false;
 
 // Lightweight performance counters for zzBurnDebug.html.
 // The logs are intentionally throttled to avoid slowing the emulator down.
-static const bool NaomiPerfLoggingEnabled = true;
+static bool NaomiPerfLoggingEnabled()
+{
+	static INT32 enabled = -1;
+	if (enabled < 0) {
+		const char* env = getenv("FBNEO_AWAVE_PROFILE");
+		enabled = (env != NULL && env[0] != 0 && strcmp(env, "0") != 0) ? 1 : 0;
+	}
+	return enabled != 0;
+}
 static INT32 NaomiPerfFrameCounter = 0;
 static INT32 NaomiPerfDrawCounter = 0;
 static double NaomiPerfContextAccumMs = 0.0;
@@ -461,7 +472,7 @@ static void NaomiClearRuntimeState()
 	{
 		std::lock_guard<std::mutex> lock(NaomiAudioMutex);
 		NaomiAudio.clear();
-		NaomiAudioReadOffset = 0;
+		NaomiAudioReadOffset = 0; NaomiAudioSourcePos = 0.0; NaomiAudioLastSample[0] = NaomiAudioLastSample[1] = 0;
 	}
 	NaomiVideoWidth = 640;
 	NaomiVideoHeight = 480;
@@ -686,9 +697,7 @@ static bool NaomiEnsureFrontendFramebuffer(INT32 width, INT32 height)
 	width = std::max<INT32>(640, width);
 	height = std::max<INT32>(480, height);
 
-	if (NaomiFrontendFramebuffer != 0) {
-		return true;
-	}
+	if (NaomiFrontendFramebuffer != 0 && NaomiFrontendFramebufferWidth == width && NaomiFrontendFramebufferHeight == height) { return true; }
 
 	GLint previousFramebuffer = 0;
 	GLint previousTexture = 0;
@@ -1216,6 +1225,12 @@ static INT32 NaomiLoadRetroGame()
 
 	memset(&avInfo, 0, sizeof(avInfo));
 	flycast_retro_get_system_av_info(&avInfo);
+	if (avInfo.timing.sample_rate > 1000.0) {
+		NaomiAudioSampleRate = (INT32)(avInfo.timing.sample_rate + 0.5);
+	} else {
+		NaomiAudioSampleRate = 44100;
+	}
+	NaomiAudioSourcePos = 0.0;
 	if (avInfo.geometry.base_width > 0) {
 		NaomiVideoWidth = (INT32)avInfo.geometry.base_width;
 	}
@@ -1392,7 +1407,7 @@ static bool NaomiReadHardwareVideo(unsigned width, unsigned height)
 	}
 	const double readPixelsEndMs = NaomiNowMs();
 
-	if (NaomiPerfLoggingEnabled) {
+	if (NaomiPerfLoggingEnabled()) {
 		NaomiPerfReadPixelsAccumMs += (readPixelsEndMs - readPixelsStartMs);
 		NaomiPerfReadPixelsSamples++;
 	}
@@ -1438,7 +1453,7 @@ static bool NaomiReadHardwareVideo(unsigned width, unsigned height)
 		UINT32* dstRow = NaomiVideo.data() + ((size_t)y * (size_t)width);
 		memcpy(dstRow, srcRow, (size_t)width * sizeof(UINT32));
 	}
-	if (NaomiPerfLoggingEnabled) {
+	if (NaomiPerfLoggingEnabled()) {
 		NaomiPerfReadFlipAccumMs += (NaomiNowMs() - flipStartMs);
 	}
 
@@ -1604,12 +1619,12 @@ static size_t NaomiAudioBatchCallback(const int16_t* data, size_t frames)
 	}
 
 	std::lock_guard<std::mutex> lock(NaomiAudioMutex);
-
 	if (NaomiAudioReadOffset > 0) {
-		const size_t remainingSamples = NaomiAudio.size() - NaomiAudioReadOffset;
+		const size_t remainingSamples = (NaomiAudioReadOffset < NaomiAudio.size()) ? (NaomiAudio.size() - NaomiAudioReadOffset) : 0;
 		if (remainingSamples == 0) {
 			NaomiAudio.clear();
 			NaomiAudioReadOffset = 0;
+			NaomiAudioSourcePos = 0.0;
 		} else if (NaomiAudioReadOffset >= 8192 || NaomiAudioReadOffset >= remainingSamples) {
 			memmove(NaomiAudio.data(), NaomiAudio.data() + NaomiAudioReadOffset, remainingSamples * sizeof(INT16));
 			NaomiAudio.resize(remainingSamples);
@@ -1621,10 +1636,12 @@ static size_t NaomiAudioBatchCallback(const int16_t* data, size_t frames)
 	NaomiAudio.resize(oldSize + frames * 2);
 	memcpy(&NaomiAudio[oldSize], data, frames * 2 * sizeof(int16_t));
 
+	const INT32 sinkRate = (nBurnSoundRate > 1000) ? nBurnSoundRate : 44100;
+	const double sourcePerSink = (NaomiAudioSampleRate > 1000) ? ((double)NaomiAudioSampleRate / (double)sinkRate) : 1.0;
 	const size_t targetFrames = (nBurnSoundLen > 0)
-		? (size_t)nBurnSoundLen * (NaomiAudioWarmupFrames > 0 ? 6 : 3)
+		? (size_t)((double)nBurnSoundLen * sourcePerSink * (NaomiAudioWarmupFrames > 0 ? 8.0 : 4.0))
 		: 4096;
-	NaomiTrimAudioQueueLocked(std::max<size_t>(targetFrames, frames * 2));
+	NaomiTrimAudioQueueLocked(std::max(targetFrames, frames * 2));
 	return frames;
 }
 
@@ -1725,33 +1742,75 @@ static void NaomiCaptureVideo()
 
 static void NaomiDrainAudio()
 {
-	const size_t wantFrames = (nBurnSoundLen > 0) ? (size_t)nBurnSoundLen : 0;
-	size_t copyFrames = 0;
-
-	if (pBurnSoundOut && nBurnSoundLen > 0) {
-		memset(pBurnSoundOut, 0, nBurnSoundLen * 2 * sizeof(INT16));
-		std::lock_guard<std::mutex> lock(NaomiAudioMutex);
-		const size_t lowLatencyFrames = wantFrames * (NaomiAudioWarmupFrames > 0 ? 4 : 2);
-		NaomiTrimAudioQueueLocked(std::max<size_t>(lowLatencyFrames, wantFrames));
-		const size_t availableSamples = (NaomiAudioReadOffset < NaomiAudio.size()) ? (NaomiAudio.size() - NaomiAudioReadOffset) : 0;
-		const size_t availableFrames = availableSamples / 2;
-		copyFrames = std::min(wantFrames, availableFrames);
-		if (copyFrames > 0) {
-			memcpy(pBurnSoundOut, NaomiAudio.data() + NaomiAudioReadOffset, copyFrames * 2 * sizeof(INT16));
-			NaomiAudioReadOffset += copyFrames * 2;
-			if (NaomiAudioReadOffset >= NaomiAudio.size()) {
-				NaomiAudio.clear();
-				NaomiAudioReadOffset = 0;
-			} else {
-				const size_t maxFrames = (wantFrames > 0) ? wantFrames * (NaomiAudioWarmupFrames > 0 ? 4 : 2) : 4096;
-				NaomiTrimAudioQueueLocked(maxFrames);
-			}
-		}
-	} else {
+	if (pBurnSoundOut == NULL || nBurnSoundLen <= 0) {
 		std::lock_guard<std::mutex> lock(NaomiAudioMutex);
 		NaomiAudio.clear();
 		NaomiAudioReadOffset = 0;
+		NaomiAudioSourcePos = 0.0;
+		return;
 	}
+
+	const INT32 sinkRate = (nBurnSoundRate > 1000) ? nBurnSoundRate : 44100;
+	const double step = (NaomiAudioSampleRate > 1000) ? ((double)NaomiAudioSampleRate / (double)sinkRate) : 1.0;
+	bool underrun = false;
+
+	std::lock_guard<std::mutex> lock(NaomiAudioMutex);
+	if (NaomiAudioReadOffset > NaomiAudio.size()) {
+		NaomiAudioReadOffset = NaomiAudio.size();
+	}
+
+	const size_t availableSamples = NaomiAudio.size() - NaomiAudioReadOffset;
+	const size_t queuedFrames = availableSamples / 2;
+	const INT16* src = queuedFrames > 0 ? (NaomiAudio.data() + NaomiAudioReadOffset) : NULL;
+
+	for (INT32 i = 0; i < nBurnSoundLen; i++) {
+		const size_t frame0 = (size_t)NaomiAudioSourcePos;
+		const double frac = NaomiAudioSourcePos - (double)frame0;
+		INT32 left = NaomiAudioLastSample[0];
+		INT32 right = NaomiAudioLastSample[1];
+		if (src != NULL && frame0 + 1 < queuedFrames) {
+			const INT16 l0 = src[frame0 * 2 + 0];
+			const INT16 r0 = src[frame0 * 2 + 1];
+			const INT16 l1 = src[(frame0 + 1) * 2 + 0];
+			const INT16 r1 = src[(frame0 + 1) * 2 + 1];
+			left = (INT32)((double)l0 + ((double)l1 - (double)l0) * frac);
+			right = (INT32)((double)r0 + ((double)r1 - (double)r0) * frac);
+		} else if (src != NULL && frame0 < queuedFrames) {
+			left = src[frame0 * 2 + 0];
+			right = src[frame0 * 2 + 1];
+			underrun = true;
+		} else {
+			underrun = true;
+		}
+		pBurnSoundOut[i * 2 + 0] = (INT16)left;
+		pBurnSoundOut[i * 2 + 1] = (INT16)right;
+		NaomiAudioLastSample[0] = (INT16)left;
+		NaomiAudioLastSample[1] = (INT16)right;
+		NaomiAudioSourcePos += step;
+	}
+	if (underrun) {
+		NaomiAudio.clear();
+		NaomiAudioReadOffset = 0;
+		NaomiAudioSourcePos = 0.0;
+		return;
+	}
+	size_t consumedFrames = (size_t)NaomiAudioSourcePos;
+	if (consumedFrames > queuedFrames) { consumedFrames = queuedFrames; }
+	NaomiAudioSourcePos -= (double)consumedFrames;
+	NaomiAudioReadOffset += consumedFrames * 2;
+	if (NaomiAudioReadOffset >= NaomiAudio.size()) {
+		NaomiAudio.clear();
+		NaomiAudioReadOffset = 0;
+		return;
+	}
+	const size_t remainingSamples = NaomiAudio.size() - NaomiAudioReadOffset;
+	if (NaomiAudioReadOffset >= 8192 || NaomiAudioReadOffset >= remainingSamples) {
+		memmove(NaomiAudio.data(), NaomiAudio.data() + NaomiAudioReadOffset, remainingSamples * sizeof(INT16));
+		NaomiAudio.resize(remainingSamples);
+		NaomiAudioReadOffset = 0;
+	}
+	const size_t maxQueuedSourceFrames = (size_t)((double)nBurnSoundLen * step * 6.0) + 1024;
+	NaomiTrimAudioQueueLocked(std::max(maxQueuedSourceFrames, (size_t)4096));
 }
 
 INT32 NaomiCoreInit(const NaomiGameConfig* config)
@@ -1907,7 +1966,7 @@ INT32 NaomiCoreFrame()
 		NaomiAudioWarmupFrames--;
 	}
 
-	if (NaomiPerfLoggingEnabled) {
+	if (NaomiPerfLoggingEnabled()) {
 		NaomiPerfFrameCounter++;
 		NaomiPerfContextAccumMs += contextMs;
 		NaomiPerfRunAccumMs += runMs;
@@ -2010,7 +2069,7 @@ INT32 NaomiCoreDraw()
 		}
 	}
 
-	if (NaomiPerfLoggingEnabled) {
+	if (NaomiPerfLoggingEnabled()) {
 		NaomiPerfDrawCounter++;
 		NaomiPerfDrawAccumMs += (NaomiNowMs() - drawStartMs);
 		if ((NaomiPerfDrawCounter % 120) == 0) {
