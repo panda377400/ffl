@@ -938,106 +938,101 @@ static INT32 NaomiBuildContentZip()
 	return 0;
 }
 
-static bool NaomiShouldDisableRttbForCurrentGame()
-{
-	if (NaomiGame == NULL || NaomiGame->driverName == NULL) {
-		return false;
-	}
-
-	// Title-specific performance workaround list.
-	// These games showed large Flycast run-time spikes with RTTB enabled after
-	// async PBO readback had already removed the glReadPixels bottleneck.
-	static const char* noRttbDrivers[] = {
-		"mslug6",   // Metal Slug 6: 47 FPS -> ~59.5 FPS in RTTB-off probe
-		"samsptk",  // Samurai Shodown VI: next RTTB-off probe candidate
-		NULL
-	};
-
-	for (INT32 i = 0; noRttbDrivers[i] != NULL; i++) {
-		if (!strcmp(NaomiGame->driverName, noRttbDrivers[i])) {
-			return true;
-		}
-	}
-
-	return false;
-}
-
 static const char* NaomiGetOptionValue(const char* key)
 {
 	if (key == NULL) {
 		return NULL;
 	}
 
-	const bool forceNoRttb = NaomiShouldDisableRttbForCurrentGame();
-
+	// Visual-safe baseline:
+	// Keep the async PBO readback optimization, but stop using global low-end
+	// visual shortcuts. The previous low-end test improved speed but can cause
+	// missing backgrounds, black quads and texture/ordering artifacts on many
+	// NAOMI/Atomiswave titles.
+	//
+	// Important choices:
+	// - RTTB stays enabled for every game.
+	// - alpha sorting goes back to per-pixel accurate.
+	// - threaded rendering is disabled because this wrapper reads back the
+	//   rendered framebuffer into FBNeo. With threaded rendering enabled, the
+	//   readback can race the render thread and capture incomplete/intermediate
+	//   frames, which looks like missing layers or black/garbled textures.
+	// - video quality options such as mipmapping, pvr2_filtering,
+	//   emulate_framebuffer, delay_frame_swapping, etc. are left to Flycast's
+	//   own defaults by returning NULL.
 	if (!strcmp(key, "reicast_system")) return (NaomiGame && NaomiGame->systemName) ? NaomiGame->systemName : "atomiswave";
+	if (!strcmp(key, "flycast_system")) return (NaomiGame && NaomiGame->systemName) ? NaomiGame->systemName : "atomiswave";
+
 	if (!strcmp(key, "reicast_internal_resolution")) return "640x480";
+	if (!strcmp(key, "flycast_internal_resolution")) return "640x480";
+
 	if (!strcmp(key, "reicast_boot_to_bios")) return "disabled";
+	if (!strcmp(key, "flycast_boot_to_bios")) return "disabled";
+
 	if (!strcmp(key, "reicast_hle_bios")) return "enabled";
+	if (!strcmp(key, "flycast_hle_bios")) return "enabled";
+
 	if (!strcmp(key, "reicast_gdrom_fast_loading")) return "disabled";
+	if (!strcmp(key, "flycast_gdrom_fast_loading")) return "disabled";
+
 	if (!strcmp(key, "reicast_cable_type")) return "TV (Composite)";
+	if (!strcmp(key, "flycast_cable_type")) return "TV (Composite)";
+
 	if (!strcmp(key, "reicast_broadcast")) return "Default";
+	if (!strcmp(key, "flycast_broadcast")) return "Default";
+
 	if (!strcmp(key, "reicast_framerate")) return "fullspeed";
+	if (!strcmp(key, "flycast_framerate")) return "fullspeed";
+
 	if (!strcmp(key, "reicast_region")) return "Default";
+	if (!strcmp(key, "flycast_region")) return "Default";
+
 	if (!strcmp(key, "reicast_language")) return "Default";
+	if (!strcmp(key, "flycast_language")) return "Default";
+
 	if (!strcmp(key, "reicast_div_matching")) return "auto";
+	if (!strcmp(key, "flycast_div_matching")) return "auto";
+
 	if (!strcmp(key, "reicast_force_wince")) return "disabled";
+	if (!strcmp(key, "flycast_force_wince")) return "disabled";
+
 	if (!strcmp(key, "reicast_enable_purupuru")) return "disabled";
+	if (!strcmp(key, "flycast_enable_purupuru")) return "disabled";
+
 	if (!strcmp(key, "reicast_analog_stick_deadzone")) return "15";
+	if (!strcmp(key, "flycast_analog_stick_deadzone")) return "15";
+
 	if (!strcmp(key, "reicast_trigger_deadzone")) return "0";
+	if (!strcmp(key, "flycast_trigger_deadzone")) return "0";
+
 	if (!strcmp(key, "reicast_digital_triggers")) return "disabled";
-	// CPU/JIT path. These keys are only requested by cores that expose the option.
-	// Returning them here is harmless for older cores that never ask for them.
+	if (!strcmp(key, "flycast_digital_triggers")) return "disabled";
+
+	// Keep dynarec explicitly requested, but do not touch visual quality paths.
 	if (!strcmp(key, "reicast_cpu_mode")) return "dynamic_recompiler";
 	if (!strcmp(key, "flycast_cpu_mode")) return "dynamic_recompiler";
 
-	// Keep RTTB enabled for most games, but disable it for titles listed in
-	// NaomiShouldDisableRttbForCurrentGame().
-	if (!strcmp(key, "reicast_enable_rttb")) return forceNoRttb ? "disabled" : "enabled";
+	// Correctness first.
+	if (!strcmp(key, "reicast_enable_rttb")) return "enabled";
+	if (!strcmp(key, "flycast_enable_rttb")) return "enabled";
+
 	if (!strcmp(key, "reicast_render_to_texture_upscaling")) return "1x";
-	if (!strcmp(key, "reicast_alpha_sorting")) return "per-strip (fast, least accurate)";
-	if (!strcmp(key, "reicast_threaded_rendering")) return "enabled";
-	if (!strcmp(key, "reicast_synchronous_rendering")) return "disabled";
-	if (!strcmp(key, "reicast_delay_frame_swapping")) return "disabled";
-	if (!strcmp(key, "reicast_frame_skipping")) return "disabled";
-	if (!strcmp(key, "reicast_allow_service_buttons")) return "enabled";
-	if (!strcmp(key, "reicast_screen_rotation")) return "horizontal";
-
-	// Low-end/performance-oriented video/audio options.
-	if (!strcmp(key, "reicast_enable_dsp")) return "disabled";
-	if (!strcmp(key, "reicast_anisotropic_filtering")) return "disabled";
-	if (!strcmp(key, "reicast_pvr2_filtering")) return "disabled";
-	if (!strcmp(key, "reicast_mipmapping")) return "disabled";
-	if (!strcmp(key, "reicast_fog")) return "enabled";
-	if (!strcmp(key, "reicast_volume_modifier_enable")) return "disabled";
-	if (!strcmp(key, "reicast_widescreen_hack")) return "disabled";
-	if (!strcmp(key, "reicast_widescreen_cheats")) return "disabled";
-	if (!strcmp(key, "reicast_emulate_framebuffer")) return "disabled";
-	if (!strcmp(key, "reicast_texupscale")) return "disabled";
-	if (!strcmp(key, "reicast_custom_textures")) return "disabled";
-	if (!strcmp(key, "reicast_dump_textures")) return "disabled";
-
-	if (!strcmp(key, "flycast_enable_rttb")) return forceNoRttb ? "disabled" : "enabled";
 	if (!strcmp(key, "flycast_render_to_texture_upscaling")) return "1x";
-	if (!strcmp(key, "flycast_alpha_sorting")) return "per-strip (fast, least accurate)";
-	if (!strcmp(key, "flycast_threaded_rendering")) return "enabled";
-	if (!strcmp(key, "flycast_synchronous_rendering")) return "disabled";
-	if (!strcmp(key, "flycast_delay_frame_swapping")) return "disabled";
-	if (!strcmp(key, "flycast_frame_skipping")) return "disabled";
 
-	// Low-end/performance-oriented video/audio options.
-	if (!strcmp(key, "flycast_enable_dsp")) return "disabled";
-	if (!strcmp(key, "flycast_anisotropic_filtering")) return "disabled";
-	if (!strcmp(key, "flycast_pvr2_filtering")) return "disabled";
-	if (!strcmp(key, "flycast_mipmapping")) return "disabled";
-	if (!strcmp(key, "flycast_fog")) return "enabled";
-	if (!strcmp(key, "flycast_volume_modifier_enable")) return "disabled";
-	if (!strcmp(key, "flycast_widescreen_hack")) return "disabled";
-	if (!strcmp(key, "flycast_widescreen_cheats")) return "disabled";
-	if (!strcmp(key, "flycast_emulate_framebuffer")) return "disabled";
-	if (!strcmp(key, "flycast_texupscale")) return "disabled";
-	if (!strcmp(key, "flycast_custom_textures")) return "disabled";
-	if (!strcmp(key, "flycast_dump_textures")) return "disabled";
+	if (!strcmp(key, "reicast_alpha_sorting")) return "per-pixel (accurate)";
+	if (!strcmp(key, "flycast_alpha_sorting")) return "per-pixel (accurate)";
+
+	if (!strcmp(key, "reicast_threaded_rendering")) return "disabled";
+	if (!strcmp(key, "flycast_threaded_rendering")) return "disabled";
+
+	if (!strcmp(key, "reicast_synchronous_rendering")) return "disabled";
+	if (!strcmp(key, "flycast_synchronous_rendering")) return "disabled";
+
+	if (!strcmp(key, "reicast_allow_service_buttons")) return "enabled";
+	if (!strcmp(key, "flycast_allow_service_buttons")) return "enabled";
+
+	if (!strcmp(key, "reicast_screen_rotation")) return "horizontal";
+	if (!strcmp(key, "flycast_screen_rotation")) return "horizontal";
 
 	return NULL;
 }
@@ -1773,9 +1768,7 @@ INT32 NaomiCoreInit(const NaomiGameConfig* config)
 	NaomiLightgunMap = config->lightgunMap;
 	NaomiLightgunMapCount = config->lightgunMapCount;
 	NaomiResetFrameState();
-	if (NaomiShouldDisableRttbForCurrentGame()) {
-		bprintf(0, _T("AWAVE profile: RTTB disabled for %S\n"), NaomiGame->driverName);
-	}
+	bprintf(0, _T("AWAVE profile: visual-safe PBO mode; RTTB=enabled, alpha=per-pixel, threaded_rendering=disabled\n"));
 	if (!OGLCreateFallbackContext()) {
 		bprintf(0, _T("naomi: failed to create fallback GL context\n"));
 		return 1;
