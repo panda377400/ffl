@@ -938,18 +938,37 @@ static INT32 NaomiBuildContentZip()
 	return 0;
 }
 
+static bool NaomiShouldDisableRttbForCurrentGame()
+{
+	if (NaomiGame == NULL || NaomiGame->driverName == NULL) {
+		return false;
+	}
+
+	// Title-specific performance workaround list.
+	// These games showed large Flycast run-time spikes with RTTB enabled after
+	// async PBO readback had already removed the glReadPixels bottleneck.
+	static const char* noRttbDrivers[] = {
+		"mslug6",   // Metal Slug 6: 47 FPS -> ~59.5 FPS in RTTB-off probe
+		"samsptk",  // Samurai Shodown VI: next RTTB-off probe candidate
+		NULL
+	};
+
+	for (INT32 i = 0; noRttbDrivers[i] != NULL; i++) {
+		if (!strcmp(NaomiGame->driverName, noRttbDrivers[i])) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
 static const char* NaomiGetOptionValue(const char* key)
 {
 	if (key == NULL) {
 		return NULL;
 	}
 
-	// Title-specific performance probe. Metal Slug 6 is still CPU/GPU-run heavy
-	// after async PBO readback, so test whether render-to-texture is the remaining
-	// hot path. If this breaks visual effects, revert only these RTTB lines.
-	const bool forceNoRttb = NaomiGame != NULL
-		&& NaomiGame->driverName != NULL
-		&& !strcmp(NaomiGame->driverName, "mslug6");
+	const bool forceNoRttb = NaomiShouldDisableRttbForCurrentGame();
 
 	if (!strcmp(key, "reicast_system")) return (NaomiGame && NaomiGame->systemName) ? NaomiGame->systemName : "atomiswave";
 	if (!strcmp(key, "reicast_internal_resolution")) return "640x480";
@@ -972,8 +991,8 @@ static const char* NaomiGetOptionValue(const char* key)
 	if (!strcmp(key, "reicast_cpu_mode")) return "dynamic_recompiler";
 	if (!strcmp(key, "flycast_cpu_mode")) return "dynamic_recompiler";
 
-	// Keep RTTB enabled for most games, but disable it for mslug6 in this test.
-	// This is a targeted A/B probe for the remaining Flycast run-time cost.
+	// Keep RTTB enabled for most games, but disable it for titles listed in
+	// NaomiShouldDisableRttbForCurrentGame().
 	if (!strcmp(key, "reicast_enable_rttb")) return forceNoRttb ? "disabled" : "enabled";
 	if (!strcmp(key, "reicast_render_to_texture_upscaling")) return "1x";
 	if (!strcmp(key, "reicast_alpha_sorting")) return "per-strip (fast, least accurate)";
@@ -1754,8 +1773,8 @@ INT32 NaomiCoreInit(const NaomiGameConfig* config)
 	NaomiLightgunMap = config->lightgunMap;
 	NaomiLightgunMapCount = config->lightgunMapCount;
 	NaomiResetFrameState();
-	if (NaomiGame != NULL && NaomiGame->driverName != NULL && !strcmp(NaomiGame->driverName, "mslug6")) {
-		bprintf(0, _T("AWAVE profile: mslug6 RTTB-off probe enabled\n"));
+	if (NaomiShouldDisableRttbForCurrentGame()) {
+		bprintf(0, _T("AWAVE profile: RTTB disabled for %S\n"), NaomiGame->driverName);
 	}
 	if (!OGLCreateFallbackContext()) {
 		bprintf(0, _T("naomi: failed to create fallback GL context\n"));
