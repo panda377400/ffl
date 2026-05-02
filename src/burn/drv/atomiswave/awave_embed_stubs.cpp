@@ -172,6 +172,15 @@ void OGLSetUseFallbackContext(bool use)
 	g_useDummyOglContext = use;
 }
 
+bool OGLUsingFallbackContext()
+{
+#if defined(_WIN32)
+	return g_useDummyOglContext && g_dummyOglContext.hglrc != nullptr;
+#else
+	return false;
+#endif
+}
+
 void OGLSetSwapBuffers(void (*f)(void*))
 {
 	g_oglSwapBuffers = f;

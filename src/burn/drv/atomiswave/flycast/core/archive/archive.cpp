@@ -22,9 +22,89 @@
 #include "archive.h"
 #include "7zArchive.h"
 #include "ZipArchive.h"
+#include <algorithm>
+#include <cstring>
+#if !defined(_WIN32)
+#include <strings.h>
+#endif
 
+
+
+extern "C" {
+	int NaomiDirectArchiveMatch(const char* path);
+	int NaomiDirectArchiveEntryCount();
+	const char* NaomiDirectArchiveEntryName(int index);
+	unsigned int NaomiDirectArchiveEntryCrc(int index);
+	unsigned int NaomiDirectArchiveRead(int index, unsigned int offset, void* buffer, unsigned int length);
+}
+
+static int fbneo_strcasecmp(const char* a, const char* b)
+{
+#if defined(_WIN32)
+	return _stricmp(a, b);
+#else
+	return strcasecmp(a, b);
+#endif
+}
+
+class FbneoArchiveFile : public ArchiveFile
+{
+public:
+	FbneoArchiveFile(int index) : index(index), offset(0) {}
+	virtual u32 Read(void* buffer, u32 length) override
+	{
+		u32 read = (u32)NaomiDirectArchiveRead(index, offset, buffer, length);
+		offset += read;
+		return read;
+	}
+private:
+	int index;
+	u32 offset;
+};
+
+class FbneoArchive : public Archive
+{
+public:
+	virtual ArchiveFile* OpenFile(const char* name) override
+	{
+		if (name == NULL)
+			return NULL;
+		const int count = NaomiDirectArchiveEntryCount();
+		for (int i = 0; i < count; i++)
+		{
+			const char* entryName = NaomiDirectArchiveEntryName(i);
+			if (entryName != NULL && fbneo_strcasecmp(entryName, name) == 0)
+				return new FbneoArchiveFile(i);
+		}
+		return NULL;
+	}
+
+	virtual ArchiveFile* OpenFileByCrc(u32 crc) override
+	{
+		if (crc == 0)
+			return NULL;
+		const int count = NaomiDirectArchiveEntryCount();
+		for (int i = 0; i < count; i++)
+		{
+			if ((u32)NaomiDirectArchiveEntryCrc(i) == crc)
+				return new FbneoArchiveFile(i);
+		}
+		return NULL;
+	}
+
+private:
+	virtual bool Open(const char* path) override
+	{
+		return NaomiDirectArchiveMatch(path) != 0;
+	}
+};
 Archive *OpenArchive(const char *path)
 {
+	Archive *fbneo_archive = new FbneoArchive();
+	if (fbneo_archive->Open(path))
+		return fbneo_archive;
+	delete fbneo_archive;
+
 	std::string base_path(path);
 
 	Archive *sz_archive = new SzArchive();

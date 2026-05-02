@@ -326,7 +326,7 @@ static INT32 DrvFrame()
 
 	ret = NaomiCoreFrame();
 
-	if (ret == 0 && pBurnDraw) {
+	if (ret == 0 && pBurnDraw && NaomiCoreWantsRedraw()) {
 		BurnDrvRedraw();
 	}
 

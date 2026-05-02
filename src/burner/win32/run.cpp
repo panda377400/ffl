@@ -322,13 +322,17 @@ int RunFrame(int bDraw, int bPause)
 #endif
 
 	if (bPrevDraw && !bPause) {
+		// AWAVE direct_texture mode presents directly from Flycast's GL texture.
+		// Do not repaint the previous CPU framebuffer on top of the GL child window.
+		if (!AwaveWin32DirectPresentEnabled()) {
 #if defined(FBNEO_DEBUG) && defined(_WIN32)
-		UINT64 paintStartTicks = runPerfNow();
+			UINT64 paintStartTicks = runPerfNow();
 #endif
-		VidPaint(0);							// paint the screen (no need to validate)
+			VidPaint(0);							// paint the screen (no need to validate)
 #if defined(FBNEO_DEBUG) && defined(_WIN32)
-		paintTicks += runPerfNow() - paintStartTicks;
+			paintTicks += runPerfNow() - paintStartTicks;
 #endif
+		}
 
 		if (runShouldUseWindowedDwmSync()) {    // Sync to DWM (Win7+, windowed)
 #if defined(FBNEO_DEBUG) && defined(_WIN32)
@@ -402,7 +406,15 @@ int RunFrame(int bDraw, int bPause)
 #if defined(FBNEO_DEBUG) && defined(_WIN32)
 				UINT64 vidFrameStartTicks = runPerfNow();
 #endif
-				if (VidFrame()) {				// Do one normal frame (w/o RunAhead)
+				if (AwaveWin32DirectPresentEnabled()) {
+					// Direct texture path: run the driver without a CPU draw target, then
+					// present Flycast's GL texture in the Win32 screen child window.
+					pBurnDraw = NULL;
+					BurnDrvFrame();
+					if (AwaveWin32Frame(hScrnWnd)) {
+						AudBlankSound();
+					}
+				} else if (VidFrame()) {				// Do one normal frame (w/o RunAhead)
 
 					// VidFrame() failed, but we must run a driver frame because we have
 					// a clocked input.  Possibly from recording or netplay(!)

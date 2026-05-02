@@ -1063,6 +1063,8 @@ static void QuitGame()
 		VidExit();
 	}
 	if (bDrvOkay) {
+		// Tear down AWAVE direct GL child/context before the driver exits.
+		AwaveWin32Exit();
 		StopReplay();
 #ifdef INCLUDE_AVI_RECORDING
 		AviStop();
@@ -1131,6 +1133,10 @@ int BurnerLoadDriver(TCHAR *pszDriverName)
 	bLoading = 1;
 	SplashDestroy(1);
 	StopReplay();
+	// Prepare the Win32 OpenGL child/context before the Atomiswave driver
+	// initializes. Flycast must render into this context for direct texture
+	// presentation to avoid cross-context texture visibility problems.
+	AwaveWin32Prepare(hScrnWnd);
 	DrvInit(nDrvIdx, bSramLoad);	// Init the game driver
 	MenuEnableItems();
 	bAltPause = 0;
@@ -1181,6 +1187,10 @@ INT32 RomDataLoadDriver(const TCHAR* pszSelDat)
 	bLoading  = 1;
 	SplashDestroy(1);
 	StopReplay();
+	// Prepare the Win32 OpenGL child/context before the Atomiswave driver
+	// initializes. Flycast must render into this context for direct texture
+	// presentation to avoid cross-context texture visibility problems.
+	AwaveWin32Prepare(hScrnWnd);
 	DrvInit(nDrvIdx, bSramLoad);	// Init the game driver
 	MenuEnableItems();
 	bAltPause = 0;

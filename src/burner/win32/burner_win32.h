@@ -259,6 +259,14 @@ extern char k_game_str[255];
 int RunIdle();
 int RunFrame(int bDraw, int bPause);
 int RunMessageLoop();
+
+// awave_win32_gl_present.cpp
+// Experimental Atomiswave/Flycast direct OpenGL present path.
+// This bypasses VidFrame()/pBurnDraw for AWAVE direct_texture mode.
+INT32 AwaveWin32DirectPresentEnabled();
+INT32 AwaveWin32Prepare(HWND hParent);
+INT32 AwaveWin32Frame(HWND hParent);
+void AwaveWin32Exit();
 int RunReset();
 void ToggleLayer(unsigned char thisLayer);
 

@@ -1,0 +1,127 @@
+Only in atomiswave_fixed/atomiswave: AWAVE_FIXED_CHANGES.diff
+Only in atomiswave_fixed/atomiswave: AWAVE_FIX_REPORT.md
+Only in atomiswave_fixed/atomiswave: README_FIXES_APPLIED.md
+diff -ru atomiswave_in/atomiswave/awave_core.cpp atomiswave_fixed/atomiswave/awave_core.cpp
+--- atomiswave_in/atomiswave/awave_core.cpp	2026-05-02 00:18:10.000000000 +0000
++++ atomiswave_fixed/atomiswave/awave_core.cpp	2026-05-02 05:14:34.412680917 +0000
+@@ -1,4 +1,4 @@
+-﻿#include "burnint.h"
++#include "burnint.h"
+ #include "awave_core.h"
+ 
+ #include <algorithm>
+@@ -978,8 +978,10 @@
+ 	if (!strcmp(key, "reicast_boot_to_bios")) return "disabled";
+ 	if (!strcmp(key, "flycast_boot_to_bios")) return "disabled";
+ 
+-	if (!strcmp(key, "reicast_hle_bios")) return "enabled";
+-	if (!strcmp(key, "flycast_hle_bios")) return "enabled";
++	if (!strcmp(key, "reicast_hle_bios") || !strcmp(key, "flycast_hle_bios")) {
++		const char* hle = getenv("FBNEO_AWAVE_HLE_BIOS");
++		return (hle != NULL && (hle[0] == '0' || !strcmp(hle, "disabled"))) ? "disabled" : "enabled";
++	}
+ 
+ 	if (!strcmp(key, "reicast_gdrom_fast_loading")) return "disabled";
+ 	if (!strcmp(key, "flycast_gdrom_fast_loading")) return "disabled";
+@@ -1070,6 +1072,17 @@
+ 	return std::chrono::duration<double, std::milli>(Clock::now() - start).count();
+ }
+ 
++static double NaomiSafeProfileMs(double value)
++{
++	// MSVC prints non-finite doubles as 1.#IO / -1.#IO in zzBurnDebug.html.
++	// Keep profiler output useful even if an early accumulator/divisor is invalid.
++	if (value != value || value < -1000000.0 || value > 1000000.0) {
++		return 0.0;
++	}
++	return value;
++}
++
++
+ static void NaomiLogBuildConfigOnce()
+ {
+ 	static bool logged = false;
+@@ -1240,8 +1253,8 @@
+ 	NaomiState.resize(flycast_retro_serialize_size());
+ 	NaomiAudioWarmupFrames = 2;
+ 	NaomiVideoWarmupReads = 2;
+-	NaomiVideoStartupSkipReads = 45;
+-	NaomiVideoProbeReads = 180;
++	NaomiVideoStartupSkipReads = 12;
++	NaomiVideoProbeReads = 60;
+ 	return 0;
+ }
+ 
+@@ -1789,9 +1802,17 @@
+ 		NaomiAudioSourcePos += step;
+ 	}
+ 	if (underrun) {
+-		NaomiAudio.clear();
+-		NaomiAudioReadOffset = 0;
+-		NaomiAudioSourcePos = 0.0;
++		size_t consumedFrames = (size_t)NaomiAudioSourcePos;
++		if (consumedFrames > queuedFrames) {
++			consumedFrames = queuedFrames;
++		}
++		NaomiAudioSourcePos -= (double)consumedFrames;
++		NaomiAudioReadOffset += consumedFrames * 2;
++		if (NaomiAudioReadOffset >= NaomiAudio.size()) {
++			NaomiAudio.clear();
++			NaomiAudioReadOffset = 0;
++			NaomiAudioSourcePos = 0.0;
++		}
+ 		return;
+ 	}
+ 	size_t consumedFrames = (size_t)NaomiAudioSourcePos;
+@@ -1915,8 +1936,8 @@
+ 	NaomiClearRuntimeState();
+ 	NaomiAudioWarmupFrames = 2;
+ 	NaomiVideoWarmupReads = 2;
+-	NaomiVideoStartupSkipReads = 45;
+-	NaomiVideoProbeReads = 180;
++	NaomiVideoStartupSkipReads = 12;
++	NaomiVideoProbeReads = 60;
+ 	return 0;
+ }
+ 
+@@ -1994,13 +2015,13 @@
+ 				NaomiVideoHeight,
+ 				NaomiAcceptedVideoFrames,
+ 				(INT32)queuedFrames,
+-				NaomiPerfTotalAccumMs / divisor,
+-				NaomiPerfContextAccumMs / divisor,
+-				NaomiPerfRunAccumMs / divisor,
+-				NaomiPerfCaptureAccumMs / divisor,
+-				NaomiPerfReadPixelsAccumMs / readDivisor,
+-				NaomiPerfReadFlipAccumMs / readDivisor,
+-				NaomiPerfAudioAccumMs / divisor);
++				NaomiSafeProfileMs(NaomiPerfTotalAccumMs / divisor),
++				NaomiSafeProfileMs(NaomiPerfContextAccumMs / divisor),
++				NaomiSafeProfileMs(NaomiPerfRunAccumMs / divisor),
++				NaomiSafeProfileMs(NaomiPerfCaptureAccumMs / divisor),
++				NaomiSafeProfileMs(NaomiPerfReadPixelsAccumMs / readDivisor),
++				NaomiSafeProfileMs(NaomiPerfReadFlipAccumMs / readDivisor),
++				NaomiSafeProfileMs(NaomiPerfAudioAccumMs / divisor));
+ 
+ 			NaomiPerfContextAccumMs = 0.0;
+ 			NaomiPerfRunAccumMs = 0.0;
+@@ -2075,7 +2096,7 @@
+ 		if ((NaomiPerfDrawCounter % 120) == 0) {
+ 			bprintf(0, _T("AWAVE profile draw=%d avg: draw=%0.3f ms bpp=%d pitch=%d dstWidth=%d draw=%dx%d direct32=%d rgb565=%d\n"),
+ 				NaomiPerfDrawCounter,
+-				NaomiPerfDrawAccumMs / 120.0,
++				NaomiSafeProfileMs(NaomiPerfDrawAccumMs / 120.0),
+ 				nBurnBpp,
+ 				nBurnPitch,
+ 				dstWidth,
+diff -ru atomiswave_in/atomiswave/awave_core.h atomiswave_fixed/atomiswave/awave_core.h
+--- atomiswave_in/atomiswave/awave_core.h	2026-04-28 03:30:40.000000000 +0000
++++ atomiswave_fixed/atomiswave/awave_core.h	2026-05-02 05:14:34.413217264 +0000
+@@ -43,6 +43,7 @@
+ 	NAOMI_GAME_INPUT_LIGHTGUN,
+ 	NAOMI_GAME_INPUT_RACING,
+ 	NAOMI_GAME_INPUT_BLOCKPONG,
++	NAOMI_GAME_INPUT_DREAMCAST_PAD,
+ };
+ 
+ enum NaomiInputBits {

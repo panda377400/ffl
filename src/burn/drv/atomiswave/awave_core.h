@@ -43,6 +43,7 @@ enum NaomiGameInputType {
 	NAOMI_GAME_INPUT_LIGHTGUN,
 	NAOMI_GAME_INPUT_RACING,
 	NAOMI_GAME_INPUT_BLOCKPONG,
+	NAOMI_GAME_INPUT_DREAMCAST_PAD,
 };
 
 enum NaomiInputBits {
@@ -70,9 +71,38 @@ INT32 NaomiCoreExit();
 INT32 NaomiCoreReset();
 INT32 NaomiCoreFrame();
 INT32 NaomiCoreDraw();
+
+// Hardware-present bridge for FBNeo-QT/other OpenGL frontends.
+// When valid is non-zero, texture is an OpenGL GL_TEXTURE_2D containing
+// the latest Flycast-rendered frame. The texture belongs to the active
+// OpenGL context used by the Atomiswave/Flycast core. Frontends must either
+// provide/share that context via OGLSetContext/OGLSetMakeCurrent/OGLSetDoneCurrent,
+// or keep using the CPU readback fallback.
+struct NaomiCoreHwVideoInfo {
+	UINT32 size;
+	UINT32 texture;
+	UINT32 framebuffer;
+	INT32 width;
+	INT32 height;
+	INT32 upsideDown;
+	INT32 valid;
+};
+
+INT32 NaomiCoreGetHwVideoInfo(NaomiCoreHwVideoInfo* info);
+INT32 NaomiCoreUsingHwDirectPresent();
+INT32 NaomiCoreWantsRedraw();
 INT32 NaomiCoreScan(INT32 nAction, INT32* pnMin);
 
 void NaomiCoreSetPadState(INT32 port, UINT32 state);
 void NaomiCoreSetAnalogState(INT32 port, INT32 axis, INT16 value);
 void NaomiCoreSetAnalogButtonState(INT32 port, INT32 button, INT16 value);
 void NaomiCoreSetLightgunState(INT32 port, INT16 x, INT16 y, UINT8 offscreen, UINT8 reload);
+
+// OpenGL context bridge. FBNeo-QT should register its render context before
+// NaomiCoreInit() when using FBNEO_AWAVE_VIDEO_MODE=direct_texture.
+void OGLSetContext(void* ptr);
+void OGLSetMakeCurrent(void (*f)(void*));
+void OGLSetDoneCurrent(void (*f)(void*));
+void OGLSetSwapBuffers(void (*f)(void*));
+void OGLSetUseFallbackContext(bool use);
+bool OGLUsingFallbackContext();

@@ -27,6 +27,10 @@
 #define __LIBRETRO__ 1
 #endif
 
+#ifndef DEBUG
+#define DEBUG 0
+#endif
+
 #ifndef HAVE_GLSYM_PRIVATE
 #define HAVE_GLSYM_PRIVATE 1
 #endif
@@ -83,18 +87,25 @@
 #define _In_opt_
 #endif
 
-#ifndef ARRAY_SIZE
-#define ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
-#endif
+/* Do not define ARRAY_SIZE here. FBNeo/libretro headers define their own version. */
 
-#if defined(BUILD_X64_EXE)
-#ifndef TARGET_WIN64
-#define TARGET_WIN64 1
-#endif
-#else
-#ifndef TARGET_WIN86
-#define TARGET_WIN86 1
-#endif
+// FBNeo builds do not always define BUILD_X64_EXE for the driver tree.
+// Detect the actual compiler target instead. Defining TARGET_WIN86 in a
+// 64-bit fbneo64 build makes Flycast choose the wrong HOST_CPU path and can
+// silently hurt SH4/AICA dynarec performance.
+#if defined(_WIN32)
+  #if defined(_WIN64) || defined(_M_X64) || defined(__x86_64__) || defined(__amd64__)
+    #ifdef TARGET_WIN86
+    #undef TARGET_WIN86
+    #endif
+    #ifndef TARGET_WIN64
+    #define TARGET_WIN64 1
+    #endif
+  #else
+    #ifndef TARGET_WIN86
+    #define TARGET_WIN86 1
+    #endif
+  #endif
 #endif
 
 #endif

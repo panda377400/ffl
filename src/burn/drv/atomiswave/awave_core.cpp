@@ -1,4 +1,5 @@
-﻿#include "burnint.h"
+#include "burnint.h"
+#include "awave_wrap_config.h"
 #include "awave_core.h"
 
 #include <algorithm>
@@ -123,6 +124,7 @@ extern void OGLDoneCurrentContext();
 extern bool OGLCreateFallbackContext();
 extern void OGLDestroyFallbackContext();
 extern void OGLSetUseFallbackContext(bool use);
+extern bool OGLUsingFallbackContext();
 
 static const NaomiGameConfig* NaomiGame = NULL;
 static bool NaomiLoaded = false;
@@ -175,6 +177,16 @@ static GLuint NaomiFrontendColorTexture = 0;
 static GLuint NaomiFrontendDepthStencilBuffer = 0;
 static INT32 NaomiFrontendFramebufferWidth = 0;
 static INT32 NaomiFrontendFramebufferHeight = 0;
+static bool NaomiHwDirectFrameValid = false;
+static INT32 NaomiHwDirectFrameWidth = 0;
+static INT32 NaomiHwDirectFrameHeight = 0;
+static bool NaomiHwDirectWarnedNoFrontend = false;
+
+enum NaomiVideoPresentMode {
+	NAOMI_VIDEO_PRESENT_READBACK = 0,
+	NAOMI_VIDEO_PRESENT_DIRECT_TEXTURE = 1,
+	NAOMI_VIDEO_PRESENT_SKIP_READBACK = 2,
+};
 
 // Async readback through Pixel Buffer Objects.
 // This keeps glReadPixels from forcing a full GPU/CPU sync on the same frame.
@@ -188,6 +200,56 @@ static INT32 NaomiReadbackPboWidth = 0;
 static INT32 NaomiReadbackPboHeight = 0;
 static size_t NaomiReadbackPboBytes = 0;
 static bool NaomiReadbackPboAvailableLogged = false;
+
+static NaomiVideoPresentMode NaomiGetVideoPresentMode()
+{
+	const char* env = getenv("FBNEO_AWAVE_VIDEO_MODE");
+	if (env != NULL && env[0] != 0) {
+		if (!strcmp(env, "direct") || !strcmp(env, "direct_texture") || !strcmp(env, "hw") || !strcmp(env, "texture")) {
+			return NAOMI_VIDEO_PRESENT_DIRECT_TEXTURE;
+		}
+		if (!strcmp(env, "skip") || !strcmp(env, "skip_readback") || !strcmp(env, "no_readback")) {
+			return NAOMI_VIDEO_PRESENT_SKIP_READBACK;
+		}
+		if (!strcmp(env, "readback") || !strcmp(env, "cpu") || !strcmp(env, "cpu_readback")) {
+			return NAOMI_VIDEO_PRESENT_READBACK;
+		}
+	}
+
+	// Safe default for the current standalone atomiswave directory: keep CPU
+	// readback unless a frontend explicitly asks for direct texture output.
+	return NAOMI_VIDEO_PRESENT_READBACK;
+}
+
+static const char* NaomiVideoPresentModeName(NaomiVideoPresentMode mode)
+{
+	switch (mode) {
+		case NAOMI_VIDEO_PRESENT_DIRECT_TEXTURE: return "direct_texture";
+		case NAOMI_VIDEO_PRESENT_SKIP_READBACK: return "skip_readback";
+		case NAOMI_VIDEO_PRESENT_READBACK:
+		default: return "cpu_readback";
+	}
+}
+
+static bool NaomiWantsDirectTexturePresent()
+{
+	return NaomiGetVideoPresentMode() == NAOMI_VIDEO_PRESENT_DIRECT_TEXTURE;
+}
+
+static bool NaomiWantsSkipReadback()
+{
+	return NaomiGetVideoPresentMode() == NAOMI_VIDEO_PRESENT_SKIP_READBACK;
+}
+
+static bool NaomiCanExposeHwTextureToFrontend()
+{
+	return NaomiWantsDirectTexturePresent()
+		&& NaomiHwRenderReady
+		&& NaomiFrontendColorTexture != 0
+		&& NaomiFrontendFramebufferWidth > 0
+		&& NaomiFrontendFramebufferHeight > 0
+		&& !OGLUsingFallbackContext();
+}
 
 // Lightweight performance counters for zzBurnDebug.html.
 // The logs are intentionally throttled to avoid slowing the emulator down.
@@ -207,13 +269,20 @@ static double NaomiPerfRunAccumMs = 0.0;
 static double NaomiPerfCaptureAccumMs = 0.0;
 static double NaomiPerfAudioAccumMs = 0.0;
 static double NaomiPerfTotalAccumMs = 0.0;
+static double NaomiPerfOuterDeltaAccumMs = 0.0;
+static double NaomiPerfOuterMaxDeltaMs = 0.0;
+static double NaomiLastFrameEntryMs = 0.0;
 static double NaomiPerfReadPixelsAccumMs = 0.0;
 static double NaomiPerfReadFlipAccumMs = 0.0;
 static double NaomiPerfDrawAccumMs = 0.0;
 static INT32 NaomiPerfReadPixelsSamples = 0;
+static INT32 NaomiPerfSlowRunCount = 0;
+static double NaomiPerfSlowRunMaxMs = 0.0;
+static INT32 NaomiPerfInvalidTimingCount = 0;
 
 static bool NaomiActivateHwRender();
 static void NaomiResetReadbackPboState();
+static INT32 NaomiLoadBurnRom(INT32 index, std::vector<UINT8>& data);
 
 typedef void (APIENTRY *NaomiPFNGLGENFRAMEBUFFERSPROC)(GLsizei, GLuint*);
 typedef void (APIENTRY *NaomiPFNGLBINDFRAMEBUFFERPROC)(GLenum, GLuint);
@@ -265,6 +334,15 @@ struct NaomiZipRecord {
 	UINT32 size;
 	UINT32 offset;
 };
+
+struct NaomiDirectArchiveEntry {
+	std::string filename;
+	UINT32 crc;
+	std::vector<UINT8> data;
+};
+
+static std::vector<NaomiDirectArchiveEntry> NaomiDirectArchiveEntries;
+static const char* NaomiDirectArchivePrefix = "fbneo-awave://";
 
 #ifdef _WIN32
 static int NaomiMkdir(const char* path)
@@ -434,21 +512,55 @@ static void NaomiMigrateLegacySaveData()
 	NaomiCopyFileIfMissing(legacyFile, runtimeFile);
 }
 
+static bool NaomiUseDirectArchive()
+{
+	const char* env = getenv("FBNEO_AWAVE_USE_DIRECT_ROM");
+	return !(env != NULL && (env[0] == '0' || !strcmp(env, "disabled")));
+}
+
+static bool NaomiEnvEnabled(const char* name)
+{
+	const char* env = getenv(name);
+	return env != NULL && env[0] != 0 && strcmp(env, "0") != 0 && strcmp(env, "disabled") != 0;
+}
+
+static bool NaomiTraceSlowRunEnabled()
+{
+	static INT32 enabled = -1;
+	if (enabled < 0) {
+		enabled = NaomiEnvEnabled("FBNEO_AWAVE_TRACE_SLOWRUN") ? 1 : 0;
+	}
+	return enabled != 0;
+}
+
+static bool NaomiValidProfileDeltaMs(double value)
+{
+	return value == value && value >= 0.0 && value < 1000.0;
+}
+
+static double NaomiCleanProfileDeltaMs(double value)
+{
+	return NaomiValidProfileDeltaMs(value) ? value : 0.0;
+}
+
 static void NaomiBuildTempPaths()
 {
 	char appDir[1024];
-	char runDirName[64];
 	const char* runtimeSubdir = (NaomiGame != NULL && NaomiGame->runtimeSubdir != NULL && NaomiGame->runtimeSubdir[0] != 0)
 		? NaomiGame->runtimeSubdir
 		: "awave";
 
 	NaomiGetAppDirectory(appDir, sizeof(appDir));
-	snprintf(runDirName, sizeof(runDirName), "run-%08x", ++NaomiContentGeneration);
 
 	snprintf(NaomiTempRoot, sizeof(NaomiTempRoot), "%sconfig\\games\\%s\\%s", appDir, runtimeSubdir, NaomiGame->driverName);
-	snprintf(NaomiTempContentDir, sizeof(NaomiTempContentDir), "%s\\content\\%s", NaomiTempRoot, runDirName);
-	snprintf(NaomiTempZipPath, sizeof(NaomiTempZipPath), "%s\\%s", NaomiTempContentDir, NaomiGame->zipName);
-	snprintf(NaomiTempZipWritePath, sizeof(NaomiTempZipWritePath), "%s\\%s.tmp", NaomiTempContentDir, NaomiGame->zipName);
+	snprintf(NaomiTempContentDir, sizeof(NaomiTempContentDir), "%s\\content", NaomiTempRoot);
+	if (NaomiUseDirectArchive()) {
+		snprintf(NaomiTempZipPath, sizeof(NaomiTempZipPath), "%s%s", NaomiDirectArchivePrefix, NaomiGame->zipName);
+		NaomiTempZipWritePath[0] = 0;
+	} else {
+		snprintf(NaomiTempZipPath, sizeof(NaomiTempZipPath), "%s\\%s", NaomiTempContentDir, NaomiGame->zipName);
+		snprintf(NaomiTempZipWritePath, sizeof(NaomiTempZipWritePath), "%s\\%s.tmp", NaomiTempContentDir, NaomiGame->zipName);
+	}
 	snprintf(NaomiTempSaveDir, sizeof(NaomiTempSaveDir), "%s\\save", NaomiTempRoot);
 
 	NaomiTempRoot[sizeof(NaomiTempRoot) - 1] = 0;
@@ -458,17 +570,94 @@ static void NaomiBuildTempPaths()
 	NaomiTempSaveDir[sizeof(NaomiTempSaveDir) - 1] = 0;
 
 	NaomiEnsureDirectory(NaomiTempRoot);
-	NaomiEnsureDirectory((std::string(NaomiTempRoot) + "\\content").c_str());
 	NaomiEnsureDirectory(NaomiTempContentDir);
 	NaomiEnsureDirectory(NaomiTempSaveDir);
 	NaomiEnsureDirectory((std::string(NaomiTempSaveDir) + "\\reicast").c_str());
 	NaomiMigrateLegacySaveData();
 }
 
+static void NaomiDirectArchiveClear()
+{
+	NaomiDirectArchiveEntries.clear();
+}
+
+static void NaomiDirectArchiveBuildPath()
+{
+	snprintf(NaomiTempZipPath, sizeof(NaomiTempZipPath), "%s%s", NaomiDirectArchivePrefix, NaomiGame->zipName);
+	NaomiTempZipPath[sizeof(NaomiTempZipPath) - 1] = 0;
+}
+
+static INT32 NaomiBuildDirectContentArchive()
+{
+	NaomiDirectArchiveClear();
+	NaomiDirectArchiveBuildPath();
+
+	for (INT32 i = 0; NaomiGame->zipEntries[i].filename != NULL; i++) {
+		const char* filename = NaomiGame->zipEntries[i].filename;
+		std::vector<UINT8> data;
+
+		if (NaomiLoadBurnRom(NaomiGame->zipEntries[i].burnRomIndex, data)) {
+			bprintf(0, _T("naomi: failed to load Burn ROM for in-memory archive: %S\n"), filename);
+			NaomiDirectArchiveClear();
+			return 1;
+		}
+
+		NaomiDirectArchiveEntry entry;
+		entry.filename = filename;
+		entry.crc = (UINT32)crc32(0L, data.data(), (uInt)data.size());
+		entry.data.swap(data);
+		NaomiDirectArchiveEntries.push_back(entry);
+	}
+
+	bprintf(0, _T("AWAVE profile: direct FBNeo ROM archive enabled (%d files, no temp zip copy)\n"), (INT32)NaomiDirectArchiveEntries.size());
+	return 0;
+}
+
+extern "C" int NaomiDirectArchiveMatch(const char* path)
+{
+	return path != NULL && !strncmp(path, NaomiDirectArchivePrefix, strlen(NaomiDirectArchivePrefix));
+}
+
+extern "C" int NaomiDirectArchiveEntryCount()
+{
+	return (int)NaomiDirectArchiveEntries.size();
+}
+
+extern "C" const char* NaomiDirectArchiveEntryName(int index)
+{
+	if (index < 0 || index >= (int)NaomiDirectArchiveEntries.size()) {
+		return NULL;
+	}
+	return NaomiDirectArchiveEntries[index].filename.c_str();
+}
+
+extern "C" unsigned int NaomiDirectArchiveEntryCrc(int index)
+{
+	if (index < 0 || index >= (int)NaomiDirectArchiveEntries.size()) {
+		return 0;
+	}
+	return NaomiDirectArchiveEntries[index].crc;
+}
+
+extern "C" unsigned int NaomiDirectArchiveRead(int index, unsigned int offset, void* buffer, unsigned int length)
+{
+	if (buffer == NULL || index < 0 || index >= (int)NaomiDirectArchiveEntries.size()) {
+		return 0;
+	}
+	const std::vector<UINT8>& data = NaomiDirectArchiveEntries[index].data;
+	if (offset >= data.size()) {
+		return 0;
+	}
+	const unsigned int available = (unsigned int)std::min<size_t>((size_t)length, data.size() - offset);
+	memcpy(buffer, data.data() + offset, available);
+	return available;
+}
+
 static void NaomiClearRuntimeState()
 {
 	NaomiVideo.clear();
 	NaomiHardwareVideoScratch.clear();
+	NaomiDirectArchiveClear();
 	{
 		std::lock_guard<std::mutex> lock(NaomiAudioMutex);
 		NaomiAudio.clear();
@@ -486,6 +675,9 @@ static void NaomiClearRuntimeState()
 	NaomiAcceptedVideoFrames = 0;
 	NaomiAudioWarmupFrames = 0;
 	NaomiVideoWarmupReads = 0;
+	NaomiHwDirectFrameValid = false;
+	NaomiHwDirectFrameWidth = 0;
+	NaomiHwDirectFrameHeight = 0;
 	memset(NaomiPads, 0, sizeof(NaomiPads));
 	memset(NaomiAnalog, 0, sizeof(NaomiAnalog));
 	memset(NaomiAnalogButtons, 0, sizeof(NaomiAnalogButtons));
@@ -809,6 +1001,11 @@ static INT32 NaomiLoadBurnRom(INT32 index, std::vector<UINT8>& data)
 
 static INT32 NaomiBuildContentZip()
 {
+	if (NaomiFileExists(NaomiTempZipPath) && !NaomiEnvEnabled("FBNEO_AWAVE_REBUILD_CONTENT_ZIP")) {
+		bprintf(0, _T("AWAVE profile: reusing cached content zip %S\n"), NaomiTempZipPath);
+		return 0;
+	}
+
 	FILE* fp = NULL;
 	std::vector<NaomiZipRecord> records;
 
@@ -947,6 +1144,131 @@ static INT32 NaomiBuildContentZip()
 	return 0;
 }
 
+
+static bool NaomiEnvTruthy(const char* value)
+{
+	return value != NULL && value[0] != 0 && strcmp(value, "0") != 0 && strcmp(value, "disabled") != 0 && strcmp(value, "false") != 0;
+}
+
+static bool NaomiIsHeavyRendererGame()
+{
+	if (NaomiGame == NULL || NaomiGame->driverName == NULL) {
+		return false;
+	}
+
+	// These Atomiswave/NAOMI titles most clearly expose the wrapper's slow
+	// visual defaults. Use a Flycast-like render preset unless the user opts out.
+	return !strcmp(NaomiGame->driverName, "samsptk") ||
+		!strcmp(NaomiGame->driverName, "kov7sprt") ||
+		!strcmp(NaomiGame->driverName, "ngbc");
+}
+
+static const char* NaomiGetRenderPresetName()
+{
+	const char* preset = getenv("FBNEO_AWAVE_RENDER_PRESET");
+	if (preset != NULL && preset[0] != 0) {
+		if (!strcmp(preset, "accurate") || !strcmp(preset, "safe") || !strcmp(preset, "0")) {
+			return "accurate";
+		}
+		if (!strcmp(preset, "flycast") || !strcmp(preset, "fast") || !strcmp(preset, "default")) {
+			return "flycast";
+		}
+		if (!strcmp(preset, "balanced") || !strcmp(preset, "compat") || !strcmp(preset, "fbneo")) {
+			return "balanced";
+		}
+		if (!strcmp(preset, "speed") || !strcmp(preset, "fastest")) {
+			return "speed";
+		}
+		return NaomiEnvTruthy(preset) ? "balanced" : "accurate";
+	}
+
+	const char* fastVisuals = getenv("FBNEO_AWAVE_FAST_VISUALS");
+	if (fastVisuals != NULL && fastVisuals[0] != 0) {
+		return NaomiEnvTruthy(fastVisuals) ? "balanced" : "accurate";
+	}
+
+	// Default for known heavy Atomiswave games: keep correctness-critical RTTB and
+	// single-threaded readback, but relax alpha sorting from per-pixel to
+	// per-triangle. This avoids the V6 Flycast preset's missing-layer/race issues.
+	return NaomiIsHeavyRendererGame() ? "balanced" : "accurate";
+}
+
+static bool NaomiUseFlycastRenderPreset()
+{
+	return !strcmp(NaomiGetRenderPresetName(), "flycast");
+}
+
+static bool NaomiUseBalancedRenderPreset()
+{
+	return !strcmp(NaomiGetRenderPresetName(), "balanced");
+}
+
+static bool NaomiUseSpeedRenderPreset()
+{
+	const char* preset = NaomiGetRenderPresetName();
+	return !strcmp(preset, "speed") || !strcmp(preset, "fastest");
+}
+
+static INT32 NaomiAudioLatencyFrames()
+{
+	const char* env = getenv("FBNEO_AWAVE_AUDIO_LATENCY_FRAMES");
+	INT32 frames = NaomiUseSpeedRenderPreset() ? 1 : 2;
+	if (env != NULL && env[0] != 0) {
+		frames = atoi(env);
+	}
+	if (frames < 1) { frames = 1; }
+	if (frames > 8) { frames = 8; }
+	return frames;
+}
+
+static bool NaomiUseSpeedHacks()
+{
+	const char* env = getenv("FBNEO_AWAVE_SPEED_HACKS");
+	if (env != NULL && env[0] != 0) {
+		return NaomiEnvTruthy(env);
+	}
+	return NaomiUseSpeedRenderPreset();
+}
+
+static const char* NaomiGetAlphaSortingValue()
+{
+	const char* env = getenv("FBNEO_AWAVE_ALPHA_SORTING");
+	if (env != NULL && env[0] != 0) {
+		if (!strcmp(env, "strip") || !strcmp(env, "per-strip") || !strcmp(env, "fast")) {
+			return "per-strip (fast, least accurate)";
+		}
+		if (!strcmp(env, "triangle") || !strcmp(env, "per-triangle") || !strcmp(env, "normal")) {
+			return "per-triangle (normal)";
+		}
+		if (!strcmp(env, "pixel") || !strcmp(env, "per-pixel") || !strcmp(env, "accurate")) {
+			return "per-pixel (accurate)";
+		}
+	}
+
+	if (NaomiUseSpeedRenderPreset()) {
+		return "per-strip (fast, least accurate)";
+	}
+	return (NaomiUseFlycastRenderPreset() || NaomiUseBalancedRenderPreset()) ? "per-triangle (normal)" : "per-pixel (accurate)";
+}
+
+static const char* NaomiGetRttbValue()
+{
+	const char* env = getenv("FBNEO_AWAVE_RTTB");
+	if (env != NULL && env[0] != 0) {
+		return NaomiEnvTruthy(env) ? "enabled" : "disabled";
+	}
+	return NaomiUseFlycastRenderPreset() ? "disabled" : "enabled";
+}
+
+static const char* NaomiGetThreadedRenderingValue()
+{
+	const char* env = getenv("FBNEO_AWAVE_THREADED_RENDERING");
+	if (env != NULL && env[0] != 0) {
+		return NaomiEnvTruthy(env) ? "enabled" : "disabled";
+	}
+	return NaomiUseFlycastRenderPreset() ? "enabled" : "disabled";
+}
+
 static const char* NaomiGetOptionValue(const char* key)
 {
 	if (key == NULL) {
@@ -978,8 +1300,10 @@ static const char* NaomiGetOptionValue(const char* key)
 	if (!strcmp(key, "reicast_boot_to_bios")) return "disabled";
 	if (!strcmp(key, "flycast_boot_to_bios")) return "disabled";
 
-	if (!strcmp(key, "reicast_hle_bios")) return "enabled";
-	if (!strcmp(key, "flycast_hle_bios")) return "enabled";
+	if (!strcmp(key, "reicast_hle_bios") || !strcmp(key, "flycast_hle_bios")) {
+		const char* hle = getenv("FBNEO_AWAVE_HLE_BIOS");
+		return (hle != NULL && (hle[0] == '0' || !strcmp(hle, "disabled"))) ? "disabled" : "enabled";
+	}
 
 	if (!strcmp(key, "reicast_gdrom_fast_loading")) return "disabled";
 	if (!strcmp(key, "flycast_gdrom_fast_loading")) return "disabled";
@@ -999,11 +1323,15 @@ static const char* NaomiGetOptionValue(const char* key)
 	if (!strcmp(key, "reicast_language")) return "Default";
 	if (!strcmp(key, "flycast_language")) return "Default";
 
-	if (!strcmp(key, "reicast_div_matching")) return "auto";
-	if (!strcmp(key, "flycast_div_matching")) return "auto";
+	if (!strcmp(key, "reicast_div_matching") || !strcmp(key, "flycast_div_matching")) {
+		return NaomiUseSpeedHacks() ? "disabled" : "auto";
+	}
 
 	if (!strcmp(key, "reicast_force_wince")) return "disabled";
 	if (!strcmp(key, "flycast_force_wince")) return "disabled";
+
+	if (!strcmp(key, "reicast_anisotropic_filtering")) return "disabled";
+	if (!strcmp(key, "flycast_anisotropic_filtering")) return "disabled";
 
 	if (!strcmp(key, "reicast_enable_purupuru")) return "disabled";
 	if (!strcmp(key, "flycast_enable_purupuru")) return "disabled";
@@ -1021,21 +1349,39 @@ static const char* NaomiGetOptionValue(const char* key)
 	if (!strcmp(key, "reicast_cpu_mode")) return "dynamic_recompiler";
 	if (!strcmp(key, "flycast_cpu_mode")) return "dynamic_recompiler";
 
-	// Correctness first.
-	if (!strcmp(key, "reicast_enable_rttb")) return "enabled";
-	if (!strcmp(key, "flycast_enable_rttb")) return "enabled";
+	if (!strcmp(key, "reicast_enable_rttb")) return NaomiGetRttbValue();
+	if (!strcmp(key, "flycast_enable_rttb")) return NaomiGetRttbValue();
 
 	if (!strcmp(key, "reicast_render_to_texture_upscaling")) return "1x";
 	if (!strcmp(key, "flycast_render_to_texture_upscaling")) return "1x";
 
-	if (!strcmp(key, "reicast_alpha_sorting")) return "per-pixel (accurate)";
-	if (!strcmp(key, "flycast_alpha_sorting")) return "per-pixel (accurate)";
+	if (!strcmp(key, "reicast_alpha_sorting")) return NaomiGetAlphaSortingValue();
+	if (!strcmp(key, "flycast_alpha_sorting")) return NaomiGetAlphaSortingValue();
 
-	if (!strcmp(key, "reicast_threaded_rendering")) return "disabled";
-	if (!strcmp(key, "flycast_threaded_rendering")) return "disabled";
+	if (!strcmp(key, "reicast_threaded_rendering")) return NaomiGetThreadedRenderingValue();
+	if (!strcmp(key, "flycast_threaded_rendering")) return NaomiGetThreadedRenderingValue();
 
 	if (!strcmp(key, "reicast_synchronous_rendering")) return "disabled";
 	if (!strcmp(key, "flycast_synchronous_rendering")) return "disabled";
+
+	if (!strcmp(key, "reicast_enable_dsp") || !strcmp(key, "flycast_enable_dsp")) {
+		return NaomiUseSpeedHacks() ? "disabled" : NULL;
+	}
+	if (!strcmp(key, "reicast_mipmapping") || !strcmp(key, "flycast_mipmapping")) {
+		return NaomiUseSpeedHacks() ? "disabled" : NULL;
+	}
+	if (!strcmp(key, "reicast_fog") || !strcmp(key, "flycast_fog")) {
+		return NaomiUseSpeedHacks() ? "disabled" : NULL;
+	}
+	if (!strcmp(key, "reicast_pvr2_filtering") || !strcmp(key, "flycast_pvr2_filtering")) {
+		return NaomiUseSpeedHacks() ? "disabled" : NULL;
+	}
+	if (!strcmp(key, "reicast_delay_frame_swapping") || !strcmp(key, "flycast_delay_frame_swapping")) {
+		return "disabled";
+	}
+	if (!strcmp(key, "reicast_frame_skipping") || !strcmp(key, "flycast_frame_skipping")) {
+		return "disabled";
+	}
 
 	if (!strcmp(key, "reicast_allow_service_buttons")) return "enabled";
 	if (!strcmp(key, "flycast_allow_service_buttons")) return "enabled";
@@ -1065,9 +1411,37 @@ static void NaomiLogPrintf(enum retro_log_level level, const char* fmt, ...)
 
 static double NaomiNowMs()
 {
+#ifdef _WIN32
+	static LARGE_INTEGER freq = [](){ LARGE_INTEGER f; QueryPerformanceFrequency(&f); return f; }();
+	static LARGE_INTEGER start = [](){ LARGE_INTEGER v; QueryPerformanceCounter(&v); return v; }();
+	LARGE_INTEGER now;
+	QueryPerformanceCounter(&now);
+	return ((double)(now.QuadPart - start.QuadPart) * 1000.0) / (double)freq.QuadPart;
+#else
 	using Clock = std::chrono::steady_clock;
 	static const Clock::time_point start = Clock::now();
 	return std::chrono::duration<double, std::milli>(Clock::now() - start).count();
+#endif
+}
+
+static double NaomiSafeProfileMs(double value)
+{
+	// MSVC prints non-finite doubles as 1.#IO / -1.#IO in zzBurnDebug.html.
+	// Keep profiler output useful even if an early accumulator/divisor is invalid.
+	if (value != value || value < -1000000.0 || value > 1000000.0) {
+		return 0.0;
+	}
+	return value;
+}
+
+
+static void NaomiLogRuntimePacingOnce()
+{
+	static bool logged = false;
+	if (logged) return;
+	logged = true;
+	bprintf(0, _T("AWAVE pacing: nBurnSoundRate=%d nBurnSoundLen=%d nBurnBpp=%d nBurnPitch=%d pBurnDraw=%p pBurnSoundOut=%p\n"),
+		nBurnSoundRate, nBurnSoundLen, nBurnBpp, nBurnPitch, pBurnDraw, pBurnSoundOut);
 }
 
 static void NaomiLogBuildConfigOnce()
@@ -1079,11 +1453,18 @@ static void NaomiLogBuildConfigOnce()
 	logged = true;
 
 	bprintf(0, _T("AWAVE profile: build/runtime diagnostics enabled\n"));
+#ifdef _WIN32
+	bprintf(0, _T("AWAVE profile: timer=qpc\n"));
+#else
+	bprintf(0, _T("AWAVE profile: timer=steady_clock\n"));
+#endif
 
 #if defined(TARGET_WIN64)
 	bprintf(0, _T("AWAVE profile: TARGET_WIN64=1\n"));
+#elif defined(TARGET_WIN86)
+	bprintf(0, _T("AWAVE profile: TARGET_WIN86=1\n"));
 #else
-	bprintf(0, _T("AWAVE profile WARNING: TARGET_WIN64 is not defined\n"));
+	bprintf(0, _T("AWAVE profile WARNING: no TARGET_WINxx macro is defined\n"));
 #endif
 
 #if defined(TARGET_NO_THREADS)
@@ -1217,6 +1598,10 @@ static INT32 NaomiLoadRetroGame()
 		OGLDoneCurrentContext();
 	}
 	NaomiRetroGameLoaded = true;
+	// The direct ROM archive is only needed while flycast_retro_load_game()
+	// reads the NAOMI/Atomiswave blobs. Clear it immediately so large games
+	// such as samsptk do not keep a second full ROM copy in memory.
+	NaomiDirectArchiveClear();
 
 	if (NaomiHwRenderRequested && !NaomiActivateHwRender()) {
 		bprintf(0, _T("naomi: failed to activate hw render context\n"));
@@ -1240,8 +1625,8 @@ static INT32 NaomiLoadRetroGame()
 	NaomiState.resize(flycast_retro_serialize_size());
 	NaomiAudioWarmupFrames = 2;
 	NaomiVideoWarmupReads = 2;
-	NaomiVideoStartupSkipReads = 45;
-	NaomiVideoProbeReads = 180;
+	NaomiVideoStartupSkipReads = 12;
+	NaomiVideoProbeReads = 60;
 	return 0;
 }
 
@@ -1328,6 +1713,53 @@ static void NaomiTrimAudioQueueLocked(size_t maxFrames)
 	memmove(NaomiAudio.data(), NaomiAudio.data() + NaomiAudioReadOffset, remainingSamples * sizeof(INT16));
 	NaomiAudio.resize(remainingSamples);
 	NaomiAudioReadOffset = 0;
+}
+
+static bool NaomiPublishHardwareTextureFrame(unsigned width, unsigned height)
+{
+	if (!NaomiHwRenderReady || width == 0 || height == 0) {
+		NaomiHwDirectFrameValid = false;
+		return false;
+	}
+
+	if (!NaomiEnsureFrontendFramebuffer((INT32)width, (INT32)height)) {
+		NaomiHwDirectFrameValid = false;
+		return false;
+	}
+
+	NaomiVideoWidth = (INT32)width;
+	NaomiVideoHeight = (INT32)height;
+	NaomiVideoStride = (INT32)width;
+	NaomiHwDirectFrameWidth = (INT32)width;
+	NaomiHwDirectFrameHeight = (INT32)height;
+
+	if (NaomiWantsDirectTexturePresent()) {
+		if (OGLUsingFallbackContext()) {
+			if (!NaomiHwDirectWarnedNoFrontend) {
+				NaomiHwDirectWarnedNoFrontend = true;
+				bprintf(0, _T("AWAVE profile WARNING: direct_texture requested but Atomiswave is using fallback hidden GL context; frontend cannot see this texture. Use CPU readback or wire FBNeo-QT GL context through OGLSetContext.\n"));
+			}
+			NaomiHwDirectFrameValid = false;
+			return false;
+		}
+
+		NaomiHwDirectFrameValid = (NaomiFrontendColorTexture != 0);
+		if (NaomiHwDirectFrameValid) {
+			NaomiAcceptedVideoFrames++;
+		}
+		return NaomiHwDirectFrameValid;
+	}
+
+	if (NaomiWantsSkipReadback()) {
+		// Diagnostic mode: run Flycast without paying the GPU->CPU readback cost.
+		// The normal FBNeo framebuffer will be stale/blank, but audio/core speed can
+		// be measured to prove whether readback/display is the bottleneck.
+		NaomiHwDirectFrameValid = false;
+		NaomiAcceptedVideoFrames++;
+		return true;
+	}
+
+	return false;
 }
 
 static bool NaomiReadHardwareVideo(unsigned width, unsigned height)
@@ -1638,10 +2070,11 @@ static size_t NaomiAudioBatchCallback(const int16_t* data, size_t frames)
 
 	const INT32 sinkRate = (nBurnSoundRate > 1000) ? nBurnSoundRate : 44100;
 	const double sourcePerSink = (NaomiAudioSampleRate > 1000) ? ((double)NaomiAudioSampleRate / (double)sinkRate) : 1.0;
+	const INT32 latencyFrames = NaomiAudioLatencyFrames();
 	const size_t targetFrames = (nBurnSoundLen > 0)
-		? (size_t)((double)nBurnSoundLen * sourcePerSink * (NaomiAudioWarmupFrames > 0 ? 8.0 : 4.0))
-		: 4096;
-	NaomiTrimAudioQueueLocked(std::max(targetFrames, frames * 2));
+		? (size_t)((double)nBurnSoundLen * sourcePerSink * (double)latencyFrames)
+		: 2048;
+	NaomiTrimAudioQueueLocked(std::max(targetFrames, frames + (size_t)64));
 	return frames;
 }
 
@@ -1732,7 +2165,19 @@ static void NaomiCaptureVideo()
 	if (NaomiVideoReadPending) {
 		const unsigned width = (NaomiPendingVideoWidth > 0) ? NaomiPendingVideoWidth : (unsigned)std::max<INT32>(1, screen_width);
 		const unsigned height = (NaomiPendingVideoHeight > 0) ? NaomiPendingVideoHeight : (unsigned)std::max<INT32>(1, screen_height);
-		if (NaomiReadHardwareVideo(width, height)) {
+
+		if (NaomiWantsDirectTexturePresent()) {
+			if (NaomiPublishHardwareTextureFrame(width, height)) {
+				NaomiVideoFromCallback = true;
+			} else if (NaomiReadHardwareVideo(width, height)) {
+				// Safety fallback when the frontend has not yet supplied/shared a GL context.
+				NaomiVideoFromCallback = true;
+			}
+		} else if (NaomiWantsSkipReadback()) {
+			if (NaomiPublishHardwareTextureFrame(width, height)) {
+				NaomiVideoFromCallback = true;
+			}
+		} else if (NaomiReadHardwareVideo(width, height)) {
 			NaomiVideoFromCallback = true;
 		}
 		NaomiVideoReadPending = false;
@@ -1757,6 +2202,19 @@ static void NaomiDrainAudio()
 	std::lock_guard<std::mutex> lock(NaomiAudioMutex);
 	if (NaomiAudioReadOffset > NaomiAudio.size()) {
 		NaomiAudioReadOffset = NaomiAudio.size();
+	}
+
+	// Keep the bridge as a low-latency frame synchronizer, not a growing FIFO.
+	// Logs showed samsptk sitting around ~2205 queued frames. That makes
+	// input/audio feel late and can hide pacing problems.
+	if (nBurnSoundLen > 0 && NaomiAudioReadOffset < NaomiAudio.size()) {
+		const size_t queuedBeforeDrain = (NaomiAudio.size() - NaomiAudioReadOffset) / 2;
+		const size_t wantedBeforeDrain = (size_t)nBurnSoundLen * (size_t)NaomiAudioLatencyFrames();
+		if (queuedBeforeDrain > wantedBeforeDrain + (size_t)nBurnSoundLen) {
+			const size_t dropFrames = queuedBeforeDrain - wantedBeforeDrain;
+			NaomiAudioReadOffset += dropFrames * 2;
+			NaomiAudioSourcePos = 0.0;
+		}
 	}
 
 	const size_t availableSamples = NaomiAudio.size() - NaomiAudioReadOffset;
@@ -1789,9 +2247,17 @@ static void NaomiDrainAudio()
 		NaomiAudioSourcePos += step;
 	}
 	if (underrun) {
-		NaomiAudio.clear();
-		NaomiAudioReadOffset = 0;
-		NaomiAudioSourcePos = 0.0;
+		size_t consumedFrames = (size_t)NaomiAudioSourcePos;
+		if (consumedFrames > queuedFrames) {
+			consumedFrames = queuedFrames;
+		}
+		NaomiAudioSourcePos -= (double)consumedFrames;
+		NaomiAudioReadOffset += consumedFrames * 2;
+		if (NaomiAudioReadOffset >= NaomiAudio.size()) {
+			NaomiAudio.clear();
+			NaomiAudioReadOffset = 0;
+			NaomiAudioSourcePos = 0.0;
+		}
 		return;
 	}
 	size_t consumedFrames = (size_t)NaomiAudioSourcePos;
@@ -1809,8 +2275,8 @@ static void NaomiDrainAudio()
 		NaomiAudio.resize(remainingSamples);
 		NaomiAudioReadOffset = 0;
 	}
-	const size_t maxQueuedSourceFrames = (size_t)((double)nBurnSoundLen * step * 6.0) + 1024;
-	NaomiTrimAudioQueueLocked(std::max(maxQueuedSourceFrames, (size_t)4096));
+	const size_t maxQueuedSourceFrames = (size_t)((double)nBurnSoundLen * step * (double)NaomiAudioLatencyFrames()) + 64;
+	NaomiTrimAudioQueueLocked(std::max(maxQueuedSourceFrames, (size_t)nBurnSoundLen + 64));
 }
 
 INT32 NaomiCoreInit(const NaomiGameConfig* config)
@@ -1827,21 +2293,47 @@ INT32 NaomiCoreInit(const NaomiGameConfig* config)
 	NaomiLightgunMap = config->lightgunMap;
 	NaomiLightgunMapCount = config->lightgunMapCount;
 	NaomiResetFrameState();
-	bprintf(0, _T("AWAVE profile: visual-safe PBO mode; RTTB=enabled, alpha=per-pixel, threaded_rendering=disabled\n"));
-	if (!OGLCreateFallbackContext()) {
-		bprintf(0, _T("naomi: failed to create fallback GL context\n"));
-		return 1;
+	bprintf(0, _T("AWAVE profile: visual mode=%S; render_preset=%S, RTTB=%S, alpha=%S, threaded_rendering=%S, direct_rom=%S, speed_hacks=%S, audio_latency_frames=%d\n"),
+		NaomiVideoPresentModeName(NaomiGetVideoPresentMode()),
+		NaomiGetRenderPresetName(),
+		NaomiGetRttbValue(),
+		NaomiGetAlphaSortingValue(),
+		NaomiGetThreadedRenderingValue(),
+		NaomiUseDirectArchive() ? "enabled" : "disabled",
+		NaomiUseSpeedHacks() ? "enabled" : "disabled",
+		NaomiAudioLatencyFrames());
+
+	const bool externalContextAvailable = (OGLGetContext() != NULL);
+	if (NaomiWantsDirectTexturePresent() && externalContextAvailable) {
+		OGLSetUseFallbackContext(false);
+		bprintf(0, _T("AWAVE profile: using frontend/shared OpenGL context for direct texture present\n"));
+	} else {
+		if (NaomiWantsDirectTexturePresent() && !externalContextAvailable) {
+			bprintf(0, _T("AWAVE profile WARNING: direct_texture requested but no frontend GL context is registered; creating fallback context and falling back to CPU visibility unless frontend patch is applied\n"));
+		}
+		if (!OGLCreateFallbackContext()) {
+			bprintf(0, _T("naomi: failed to create fallback GL context\n"));
+			return 1;
+		}
+		OGLSetUseFallbackContext(true);
 	}
-	OGLSetUseFallbackContext(true);
 	NaomiLogBuildConfigOnce();
+	NaomiLogRuntimePacingOnce();
 	OGLMakeCurrentContext();
 	NaomiLogGlInfoOnce("fallback-init");
 	OGLDoneCurrentContext();
 
 	NaomiBuildTempPaths();
-	if (NaomiBuildContentZip()) {
-		bprintf(0, _T("naomi: content zip build failed\n"));
-		return 1;
+	if (NaomiUseDirectArchive()) {
+		if (NaomiBuildDirectContentArchive()) {
+			bprintf(0, _T("naomi: direct content archive build failed\n"));
+			return 1;
+		}
+	} else {
+		if (NaomiBuildContentZip()) {
+			bprintf(0, _T("naomi: content zip build failed\n"));
+			return 1;
+		}
 	}
 
 	flycast_retro_set_environment(NaomiEnvironmentCallback);
@@ -1915,8 +2407,8 @@ INT32 NaomiCoreReset()
 	NaomiClearRuntimeState();
 	NaomiAudioWarmupFrames = 2;
 	NaomiVideoWarmupReads = 2;
-	NaomiVideoStartupSkipReads = 45;
-	NaomiVideoProbeReads = 180;
+	NaomiVideoStartupSkipReads = 12;
+	NaomiVideoProbeReads = 60;
 	return 0;
 }
 
@@ -1928,6 +2420,11 @@ INT32 NaomiCoreFrame()
 
 	const bool useHwContext = NaomiHwRenderRequested || NaomiHwRenderReady;
 	const double frameStartMs = NaomiNowMs();
+	double outerDeltaMs = 0.0;
+	if (NaomiLastFrameEntryMs > 0.0) {
+		outerDeltaMs = frameStartMs - NaomiLastFrameEntryMs;
+	}
+	NaomiLastFrameEntryMs = frameStartMs;
 
 	NaomiVideoFromCallback = false;
 	NaomiVideoReadPending = false;
@@ -1945,7 +2442,27 @@ INT32 NaomiCoreFrame()
 
 	const double runStartMs = NaomiNowMs();
 	flycast_retro_run();
-	const double runMs = NaomiNowMs() - runStartMs;
+	const double runMsRaw = NaomiNowMs() - runStartMs;
+	const double runMs = NaomiCleanProfileDeltaMs(runMsRaw);
+	if (NaomiPerfLoggingEnabled()) {
+		if (!NaomiValidProfileDeltaMs(runMsRaw)) {
+			NaomiPerfInvalidTimingCount++;
+		} else if (runMsRaw > 10.0) {
+			NaomiPerfSlowRunCount++;
+			if (runMsRaw > NaomiPerfSlowRunMaxMs) { NaomiPerfSlowRunMaxMs = runMsRaw; }
+			if (NaomiTraceSlowRunEnabled()) {
+				size_t queuedFramesNow = 0;
+				{
+					std::lock_guard<std::mutex> lock(NaomiAudioMutex);
+					if (NaomiAudioReadOffset < NaomiAudio.size()) {
+						queuedFramesNow = (NaomiAudio.size() - NaomiAudioReadOffset) / 2;
+					}
+				}
+				bprintf(0, _T("AWAVE slow-run frame=%d run=%0.3f ms audioQueued=%d preset=%S speed_hacks=%d\n"),
+					NaomiPerfFrameCounter + 1, NaomiSafeProfileMs(runMsRaw), (INT32)queuedFramesNow, NaomiGetRenderPresetName(), NaomiUseSpeedHacks() ? 1 : 0);
+			}
+		}
+	}
 
 	const double captureStartMs = NaomiNowMs();
 	NaomiCaptureVideo();
@@ -1968,11 +2485,17 @@ INT32 NaomiCoreFrame()
 
 	if (NaomiPerfLoggingEnabled()) {
 		NaomiPerfFrameCounter++;
-		NaomiPerfContextAccumMs += contextMs;
+		NaomiPerfContextAccumMs += NaomiCleanProfileDeltaMs(contextMs);
 		NaomiPerfRunAccumMs += runMs;
-		NaomiPerfCaptureAccumMs += captureMs;
-		NaomiPerfAudioAccumMs += audioMs;
-		NaomiPerfTotalAccumMs += (NaomiNowMs() - frameStartMs);
+		NaomiPerfCaptureAccumMs += NaomiCleanProfileDeltaMs(captureMs);
+		NaomiPerfAudioAccumMs += NaomiCleanProfileDeltaMs(audioMs);
+		NaomiPerfTotalAccumMs += NaomiCleanProfileDeltaMs(NaomiNowMs() - frameStartMs);
+		if (NaomiValidProfileDeltaMs(outerDeltaMs)) {
+			NaomiPerfOuterDeltaAccumMs += outerDeltaMs;
+			if (outerDeltaMs > NaomiPerfOuterMaxDeltaMs) { NaomiPerfOuterMaxDeltaMs = outerDeltaMs; }
+		} else if (outerDeltaMs != 0.0) {
+			NaomiPerfInvalidTimingCount++;
+		}
 
 		if ((NaomiPerfFrameCounter % 120) == 0) {
 			size_t queuedFrames = 0;
@@ -1985,7 +2508,7 @@ INT32 NaomiCoreFrame()
 
 			const double divisor = 120.0;
 			const double readDivisor = (NaomiPerfReadPixelsSamples > 0) ? (double)NaomiPerfReadPixelsSamples : 1.0;
-			bprintf(0, _T("AWAVE profile frame=%d hwReq=%d hwReady=%d pbo=%d video=%dx%d accepted=%d audioQueued=%d avg: total=%0.3f ctx=%0.3f run=%0.3f capture=%0.3f readpix=%0.3f flip=%0.3f audio=%0.3f ms\n"),
+			bprintf(0, _T("AWAVE profile frame=%d hwReq=%d hwReady=%d pbo=%d video=%dx%d accepted=%d audioQueued=%d avg: outer=%0.3f outerMax=%0.3f total=%0.3f ctx=%0.3f run=%0.3f capture=%0.3f readpix=%0.3f flip=%0.3f audio=%0.3f ms slow=%d slowMax=%0.3f invalidTime=%d soundLen=%d soundRate=%d\n"),
 				NaomiPerfFrameCounter,
 				NaomiHwRenderRequested ? 1 : 0,
 				NaomiHwRenderReady ? 1 : 0,
@@ -1994,26 +2517,82 @@ INT32 NaomiCoreFrame()
 				NaomiVideoHeight,
 				NaomiAcceptedVideoFrames,
 				(INT32)queuedFrames,
-				NaomiPerfTotalAccumMs / divisor,
-				NaomiPerfContextAccumMs / divisor,
-				NaomiPerfRunAccumMs / divisor,
-				NaomiPerfCaptureAccumMs / divisor,
-				NaomiPerfReadPixelsAccumMs / readDivisor,
-				NaomiPerfReadFlipAccumMs / readDivisor,
-				NaomiPerfAudioAccumMs / divisor);
+				NaomiSafeProfileMs(NaomiPerfOuterDeltaAccumMs / divisor),
+				NaomiSafeProfileMs(NaomiPerfOuterMaxDeltaMs),
+				NaomiSafeProfileMs(NaomiPerfTotalAccumMs / divisor),
+				NaomiSafeProfileMs(NaomiPerfContextAccumMs / divisor),
+				NaomiSafeProfileMs(NaomiPerfRunAccumMs / divisor),
+				NaomiSafeProfileMs(NaomiPerfCaptureAccumMs / divisor),
+				NaomiSafeProfileMs(NaomiPerfReadPixelsAccumMs / readDivisor),
+				NaomiSafeProfileMs(NaomiPerfReadFlipAccumMs / readDivisor),
+				NaomiSafeProfileMs(NaomiPerfAudioAccumMs / divisor),
+				NaomiPerfSlowRunCount,
+				NaomiSafeProfileMs(NaomiPerfSlowRunMaxMs),
+				NaomiPerfInvalidTimingCount,
+				nBurnSoundLen,
+				nBurnSoundRate);
 
 			NaomiPerfContextAccumMs = 0.0;
 			NaomiPerfRunAccumMs = 0.0;
 			NaomiPerfCaptureAccumMs = 0.0;
 			NaomiPerfAudioAccumMs = 0.0;
 			NaomiPerfTotalAccumMs = 0.0;
+			NaomiPerfOuterDeltaAccumMs = 0.0;
+			NaomiPerfOuterMaxDeltaMs = 0.0;
 			NaomiPerfReadPixelsAccumMs = 0.0;
 			NaomiPerfReadFlipAccumMs = 0.0;
 			NaomiPerfReadPixelsSamples = 0;
+			NaomiPerfSlowRunCount = 0;
+			NaomiPerfSlowRunMaxMs = 0.0;
+			NaomiPerfInvalidTimingCount = 0;
 		}
 	}
 
 	return 0;
+}
+
+INT32 NaomiCoreGetHwVideoInfo(NaomiCoreHwVideoInfo* info)
+{
+	if (info == NULL) {
+		return 1;
+	}
+
+	memset(info, 0, sizeof(*info));
+	info->size = sizeof(*info);
+	info->texture = (UINT32)NaomiFrontendColorTexture;
+	info->framebuffer = (UINT32)NaomiFrontendFramebuffer;
+	info->width = NaomiHwDirectFrameWidth > 0 ? NaomiHwDirectFrameWidth : NaomiFrontendFramebufferWidth;
+	info->height = NaomiHwDirectFrameHeight > 0 ? NaomiHwDirectFrameHeight : NaomiFrontendFramebufferHeight;
+	info->upsideDown = 1;
+	info->valid = NaomiCanExposeHwTextureToFrontend() && NaomiHwDirectFrameValid ? 1 : 0;
+	return info->valid ? 0 : 1;
+}
+
+INT32 NaomiCoreUsingHwDirectPresent()
+{
+	return NaomiCanExposeHwTextureToFrontend() && NaomiHwDirectFrameValid ? 1 : 0;
+}
+
+INT32 NaomiCoreWantsRedraw()
+{
+	if (!NaomiLoaded) {
+		return 0;
+	}
+
+	// skip_readback intentionally does not publish a CPU framebuffer.
+	// Avoid BurnDrvRedraw()/SoftFX entirely so the test measures Flycast core
+	// and audio pacing rather than FBNeo's black-frame redraw path.
+	if (NaomiWantsSkipReadback()) {
+		return 0;
+	}
+
+	// In final direct_texture mode the frontend presents the GL texture.
+	// Do not also ask FBNeo to redraw stale/readback CPU data.
+	if (NaomiCoreUsingHwDirectPresent()) {
+		return 0;
+	}
+
+	return 1;
 }
 
 INT32 NaomiCoreDraw()
@@ -2023,6 +2602,12 @@ INT32 NaomiCoreDraw()
 	}
 
 	const double drawStartMs = NaomiNowMs();
+
+	if (NaomiCoreUsingHwDirectPresent()) {
+		// Final intended path: the frontend presents NaomiFrontendColorTexture
+		// directly. Do not overwrite pBurnDraw with stale CPU readback data.
+		return 0;
+	}
 
 	if (NaomiVideo.empty()) {
 		memset(pBurnDraw, 0, (size_t)nBurnPitch * 480U);
@@ -2075,7 +2660,7 @@ INT32 NaomiCoreDraw()
 		if ((NaomiPerfDrawCounter % 120) == 0) {
 			bprintf(0, _T("AWAVE profile draw=%d avg: draw=%0.3f ms bpp=%d pitch=%d dstWidth=%d draw=%dx%d direct32=%d rgb565=%d\n"),
 				NaomiPerfDrawCounter,
-				NaomiPerfDrawAccumMs / 120.0,
+				NaomiSafeProfileMs(NaomiPerfDrawAccumMs / 120.0),
 				nBurnBpp,
 				nBurnPitch,
 				dstWidth,
