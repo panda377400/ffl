@@ -221,7 +221,9 @@ int DrvInit(int nDrvNum, bool bRestore)
 
 	// Define nMaxPlayers early; GameInpInit() needs it (normally defined in DoLibInit()).
 	nMaxPlayers = BurnDrvGetMaxPlayers();
-	GameInpInit();					// Init game input
+	GameInpInit();
+
+	AwaveWin32Prepare(hScrnWnd);   // 必须在 DoLibInit/BurnDrvInit 前
 
 	if(ConfigGameLoad(true)) {
 		ConfigGameLoadHardwareDefaults();
@@ -238,6 +240,7 @@ int DrvInit(int nDrvNum, bool bRestore)
 	if (nStatus) {
 		if (nStatus & 2) {
 			BurnDrvExit();			// Exit the driver
+			AwaveWin32Exit();
 
 			ScrnTitle();
 
@@ -334,6 +337,7 @@ int DrvExit()
 			ConfigGameSave(bSaveInputs);
 			GameInpExit();				// Exit game input
 			BurnDrvExit();				// Exit the driver
+			AwaveWin32Exit();
 		}
 	}
 
