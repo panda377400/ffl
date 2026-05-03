@@ -182,7 +182,6 @@ struct BurnDriver BurnDrvAwaveAwbios = {
 
 // Sports Shooting USA
 static struct BurnRomInfo sprtshotRomDesc[] = {
-    AWAVE_BIOS_ROMS,
     { "ax0101p01.ic18", 0x0800000, 0xb3642b5d, BRF_PRG | BRF_ESS },
     { "ax0101m01.ic11", 0x1000000, 0x1e39184d, BRF_PRG | BRF_ESS },
     { "ax0102m01.ic12", 0x1000000, 0x700764d1, BRF_PRG | BRF_ESS },
@@ -204,7 +203,6 @@ struct BurnDriver BurnDrvAwavesprtshot = {
 };
 // Dolphin Blue
 static struct BurnRomInfo dolphinRomDesc[] = {
-    AWAVE_BIOS_ROMS,
     { "ax0401p01.ic18", 0x0800000, 0x195d6328, BRF_PRG | BRF_ESS },
     { "ax0401m01.ic11", 0x1000000, 0x5e5dca57, BRF_PRG | BRF_ESS },
     { "ax0402m01.ic12", 0x1000000, 0x77dd4771, BRF_PRG | BRF_ESS },
@@ -227,7 +225,6 @@ struct BurnDriver BurnDrvAwavedolphin = {
 };
 // Demolish Fist
 static struct BurnRomInfo demofistRomDesc[] = {
-    AWAVE_BIOS_ROMS,
     { "ax0601p01.ic18", 0x0800000, 0x0efb38ad, BRF_PRG | BRF_ESS },
     { "ax0601m01.ic11", 0x1000000, 0x12fda2c7, BRF_PRG | BRF_ESS },
     { "ax0602m01.ic12", 0x1000000, 0xaea61fdf, BRF_PRG | BRF_ESS },
@@ -252,7 +249,6 @@ struct BurnDriver BurnDrvAwavedemofist = {
 };
 // Ranger Mission
 static struct BurnRomInfo rangrmsnRomDesc[] = {
-    AWAVE_BIOS_ROMS,
     { "ax1601p01.ic18", 0x0800000, 0x00a74fbb, BRF_PRG | BRF_ESS },
     { "ax1601m01.ic11", 0x1000000, 0xf34eed33, BRF_PRG | BRF_ESS },
     { "ax1602m01.ic12", 0x1000000, 0xa7d59efb, BRF_PRG | BRF_ESS },
@@ -275,7 +271,6 @@ struct BurnDriver BurnDrvAwaverangrmsn = {
 };
 // The Rumble Fish
 static struct BurnRomInfo rumblefRomDesc[] = {
-    AWAVE_BIOS_ROMS,
     { "ax1801p01.ic18", 0x0800000, 0x2f7fb163, BRF_PRG | BRF_ESS },
     { "ax1801m01.ic11", 0x1000000, 0xc38aa61c, BRF_PRG | BRF_ESS },
     { "ax1802m01.ic12", 0x1000000, 0x72e0ebc8, BRF_PRG | BRF_ESS },
@@ -300,7 +295,6 @@ struct BurnDriver BurnDrvAwaverumblef = {
 };
 // Fist Of The North Star / Hokuto no Ken
 static struct BurnRomInfo fotnsRomDesc[] = {
-    AWAVE_BIOS_ROMS,
     { "ax1901p01.ic18", 0x0800000, 0xa06998b0, BRF_PRG | BRF_ESS },
     { "ax1901m01.ic11", 0x1000000, 0xff5a1642, BRF_PRG | BRF_ESS },
     { "ax1902m01.ic12", 0x1000000, 0xd9aae8a9, BRF_PRG | BRF_ESS },
@@ -325,7 +319,6 @@ struct BurnDriver BurnDrvAwavefotns = {
 };
 // The King of Fighters Neowave
 static struct BurnRomInfo kofnwRomDesc[] = {
-    AWAVE_BIOS_ROMS,
     { "ax2201en_p01.ic18", 0x0800000, 0x27aab918, BRF_PRG | BRF_ESS },
     { "ax2201m01.ic11",    0x1000000, 0x22ea665b, BRF_PRG | BRF_ESS },
     { "ax2202m01.ic12",    0x1000000, 0x7fad1bea, BRF_PRG | BRF_ESS },
@@ -349,7 +342,6 @@ struct BurnDriver BurnDrvAwavekofnw = {
 };
 // Extreme Hunting
 static struct BurnRomInfo xtrmhuntRomDesc[] = {
-    AWAVE_BIOS_ROMS,
     { "ax2401p01.ic18", 0x0800000, 0x8e2a11f5, BRF_PRG | BRF_ESS },
     { "ax2401m01.ic11", 0x1000000, 0x76dbc286, BRF_PRG | BRF_ESS },
     { "ax2402m01.ic12", 0x1000000, 0xcd590ea2, BRF_PRG | BRF_ESS },
@@ -373,7 +365,6 @@ struct BurnDriver BurnDrvAwavextrmhunt = {
 };
 // Extreme Hunting 2
 static struct BurnRomInfo xtrmhnt2RomDesc[] = {
-    AWAVE_BIOS_ROMS,
     { "610-0752.u3",  0x1000000, 0xbab6182e, BRF_PRG | BRF_ESS },
     { "610-0752.u1",  0x1000000, 0x3086bc47, BRF_PRG | BRF_ESS },
     { "610-0752.u4",  0x1000000, 0x9787f145, BRF_PRG | BRF_ESS },
@@ -400,7 +391,6 @@ struct BurnDriver BurnDrvAwavextrmhnt2 = {
 };
 // Animal Basket / Hustle Tamaire Kyousou (24 Jan 2005)
 static struct BurnRomInfo anmlbsktRomDesc[] = {
-    AWAVE_BIOS_ROMS,
     { "vm2001f01.u3",  0x800000, 0x4fb33380, BRF_PRG | BRF_ESS },
     { "vm2001f01.u4",  0x800000, 0x7cb2e7c3, BRF_PRG | BRF_ESS },
     { "vm2001f01.u2",  0x800000, 0x386070a1, BRF_PRG | BRF_ESS },
@@ -421,7 +411,6 @@ struct BurnDriver BurnDrvAwaveanmlbskt = {
 };
 // Block Pong-Pong
 static struct BurnRomInfo blokpongRomDesc[] = {
-    AWAVE_BIOS_ROMS,
     { "u3", 0x1000000, 0xdebaf8bd, BRF_PRG | BRF_ESS },
     { "u1", 0x1000000, 0xca097a3f, BRF_PRG | BRF_ESS },
     { "u4", 0x1000000, 0xd235dd29, BRF_PRG | BRF_ESS },
@@ -441,7 +430,6 @@ struct BurnDriver BurnDrvAwaveblokpong = {
 };
 // Knights of Valour - The Seven Spirits
 static struct BurnRomInfo kov7sprtRomDesc[] = {
-    AWAVE_BIOS_ROMS,
     { "ax1301p01.ic18", 0x0800000, 0x6833a334, BRF_PRG | BRF_ESS },
     { "ax1301m01.ic11", 0x1000000, 0x58ae7ca1, BRF_PRG | BRF_ESS },
     { "ax1301m02.ic12", 0x1000000, 0x871ea03f, BRF_PRG | BRF_ESS },
@@ -466,7 +454,6 @@ struct BurnDriver BurnDrvAwavekov7sprt = {
 };
 // Guilty Gear Isuka
 static struct BurnRomInfo ggisukaRomDesc[] = {
-    AWAVE_BIOS_ROMS,
     { "ax1201p01.ic18", 0x0800000, 0x0a78d52c, BRF_PRG | BRF_ESS },
     { "ax1201m01.ic10", 0x1000000, 0xdf96ce30, BRF_PRG | BRF_ESS },
     { "ax1202m01.ic11", 0x1000000, 0xdfc6fd67, BRF_PRG | BRF_ESS },

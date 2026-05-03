@@ -1,7 +1,8 @@
 // Stable NAOMI FBNeo driver bridge, first ROM-cart batch.
 // This file is designed for the clean awave_core.cpp + flycast_shim bridge.
 // It intentionally does not include Flycast source, libretro callbacks, or awave_wrap_*.
-// Source references for ROM names/CRCs: MAME src/mame/sega/naomi.cpp, parsed 2026-05-03.
+// Source references for ROM names/CRCs: MAME src/mame/sega/naomi.cpp.
+// Important: game ROM descriptors intentionally exclude board BIOS ROMs; BIOS is linked via BurnDriver boardrom field.
 
 #include "burnint.h"
 #include "awave_core.h"
@@ -196,7 +197,6 @@ struct BurnDriver BurnDrvNaomiHod2bios = {
 
 // Power Stone
 static struct BurnRomInfo pstoneRomDesc[] = {
-    NAOMI_BIOS_ROMS,
     { "epr-21597.ic22", 0x0200000, 0x62c7acc0, BRF_PRG | BRF_ESS },
     { "mpr-21589.ic1", 0x0800000, 0x2fa66608, BRF_PRG | BRF_ESS },
     { "mpr-21590.ic2", 0x0800000, 0x6341b399, BRF_PRG | BRF_ESS },
@@ -210,15 +210,15 @@ static struct BurnRomInfo pstoneRomDesc[] = {
 STD_ROM_PICK(pstone)
 STD_ROM_FN(pstone)
 static NaomiZipEntry pstoneZipEntries[] = {
-    ZIPENTRY("epr-21597.ic22", NAOMI_BIOS_COUNT + 0),
-    ZIPENTRY("mpr-21589.ic1", NAOMI_BIOS_COUNT + 1),
-    ZIPENTRY("mpr-21590.ic2", NAOMI_BIOS_COUNT + 2),
-    ZIPENTRY("mpr-21591.ic3", NAOMI_BIOS_COUNT + 3),
-    ZIPENTRY("mpr-21592.ic4", NAOMI_BIOS_COUNT + 4),
-    ZIPENTRY("mpr-21593.ic5", NAOMI_BIOS_COUNT + 5),
-    ZIPENTRY("mpr-21594.ic6", NAOMI_BIOS_COUNT + 6),
-    ZIPENTRY("mpr-21595.ic7", NAOMI_BIOS_COUNT + 7),
-    ZIPENTRY("mpr-21596.ic8", NAOMI_BIOS_COUNT + 8),
+    ZIPENTRY("epr-21597.ic22", 0),
+    ZIPENTRY("mpr-21589.ic1", 1),
+    ZIPENTRY("mpr-21590.ic2", 2),
+    ZIPENTRY("mpr-21591.ic3", 3),
+    ZIPENTRY("mpr-21592.ic4", 4),
+    ZIPENTRY("mpr-21593.ic5", 5),
+    ZIPENTRY("mpr-21594.ic6", 6),
+    ZIPENTRY("mpr-21595.ic7", 7),
+    ZIPENTRY("mpr-21596.ic8", 8),
     ZIPEND
 };
 NAOMI_INIT_FUNC(pstone, pstoneZipEntries, NAOMI_GAME_INPUT_DIGITAL, "naomi.zip", "naomi", "naomi", AWAVE_PLATFORM_NAOMI)
@@ -231,7 +231,6 @@ struct BurnDriver BurnDrvNaomipstone = {
 };
 // Dead or Alive 2 Millennium
 static struct BurnRomInfo doa2mRomDesc[] = {
-    NAOMI_BIOS_ROMS,
     { "doa2verm.ic22", 0x0400000, 0x94b16f08, BRF_PRG | BRF_ESS },
     { "mpr-22100.ic1", 0x0800000, 0x92a53e5e, BRF_PRG | BRF_ESS },
     { "mpr-22101.ic2", 0x0800000, 0x14cd7dce, BRF_PRG | BRF_ESS },
@@ -259,29 +258,29 @@ static struct BurnRomInfo doa2mRomDesc[] = {
 STD_ROM_PICK(doa2m)
 STD_ROM_FN(doa2m)
 static NaomiZipEntry doa2mZipEntries[] = {
-    ZIPENTRY("doa2verm.ic22", NAOMI_BIOS_COUNT + 0),
-    ZIPENTRY("mpr-22100.ic1", NAOMI_BIOS_COUNT + 1),
-    ZIPENTRY("mpr-22101.ic2", NAOMI_BIOS_COUNT + 2),
-    ZIPENTRY("mpr-22102.ic3", NAOMI_BIOS_COUNT + 3),
-    ZIPENTRY("mpr-22103.ic4", NAOMI_BIOS_COUNT + 4),
-    ZIPENTRY("mpr-22104.ic5", NAOMI_BIOS_COUNT + 5),
-    ZIPENTRY("mpr-22105.ic6", NAOMI_BIOS_COUNT + 6),
-    ZIPENTRY("mpr-22106.ic7", NAOMI_BIOS_COUNT + 7),
-    ZIPENTRY("mpr-22107.ic8", NAOMI_BIOS_COUNT + 8),
-    ZIPENTRY("mpr-22108.ic9", NAOMI_BIOS_COUNT + 9),
-    ZIPENTRY("mpr-22109.ic10", NAOMI_BIOS_COUNT + 10),
-    ZIPENTRY("mpr-22110.ic11", NAOMI_BIOS_COUNT + 11),
-    ZIPENTRY("mpr-22111.ic12s", NAOMI_BIOS_COUNT + 12),
-    ZIPENTRY("mpr-22112.ic13s", NAOMI_BIOS_COUNT + 13),
-    ZIPENTRY("mpr-22113.ic14s", NAOMI_BIOS_COUNT + 14),
-    ZIPENTRY("mpr-22114.ic15s", NAOMI_BIOS_COUNT + 15),
-    ZIPENTRY("mpr-22115.ic16s", NAOMI_BIOS_COUNT + 16),
-    ZIPENTRY("mpr-22116.ic17s", NAOMI_BIOS_COUNT + 17),
-    ZIPENTRY("mpr-22117.ic18s", NAOMI_BIOS_COUNT + 18),
-    ZIPENTRY("mpr-22118.ic19s", NAOMI_BIOS_COUNT + 19),
-    ZIPENTRY("mpr-22119.ic20s", NAOMI_BIOS_COUNT + 20),
-    ZIPENTRY("mpr-22120.ic21s", NAOMI_BIOS_COUNT + 21),
-    ZIPENTRY("841-0003.sf", NAOMI_BIOS_COUNT + 22),
+    ZIPENTRY("doa2verm.ic22", 0),
+    ZIPENTRY("mpr-22100.ic1", 1),
+    ZIPENTRY("mpr-22101.ic2", 2),
+    ZIPENTRY("mpr-22102.ic3", 3),
+    ZIPENTRY("mpr-22103.ic4", 4),
+    ZIPENTRY("mpr-22104.ic5", 5),
+    ZIPENTRY("mpr-22105.ic6", 6),
+    ZIPENTRY("mpr-22106.ic7", 7),
+    ZIPENTRY("mpr-22107.ic8", 8),
+    ZIPENTRY("mpr-22108.ic9", 9),
+    ZIPENTRY("mpr-22109.ic10", 10),
+    ZIPENTRY("mpr-22110.ic11", 11),
+    ZIPENTRY("mpr-22111.ic12s", 12),
+    ZIPENTRY("mpr-22112.ic13s", 13),
+    ZIPENTRY("mpr-22113.ic14s", 14),
+    ZIPENTRY("mpr-22114.ic15s", 15),
+    ZIPENTRY("mpr-22115.ic16s", 16),
+    ZIPENTRY("mpr-22116.ic17s", 17),
+    ZIPENTRY("mpr-22117.ic18s", 18),
+    ZIPENTRY("mpr-22118.ic19s", 19),
+    ZIPENTRY("mpr-22119.ic20s", 20),
+    ZIPENTRY("mpr-22120.ic21s", 21),
+    ZIPENTRY("841-0003.sf", 22),
     ZIPEND
 };
 NAOMI_INIT_FUNC(doa2m, doa2mZipEntries, NAOMI_GAME_INPUT_DIGITAL, "naomi.zip", "naomi", "naomi", AWAVE_PLATFORM_NAOMI)
@@ -294,7 +293,6 @@ struct BurnDriver BurnDrvNaomidoa2m = {
 };
 // Dead or Alive 2
 static struct BurnRomInfo doa2RomDesc[] = {
-    NAOMI_BIOS_ROMS,
     { "epr-22207.ic22", 0x0400000, 0x313d0e55, BRF_PRG | BRF_ESS },
     { "mpr-22100.ic1", 0x0800000, 0x92a53e5e, BRF_PRG | BRF_ESS },
     { "mpr-22101.ic2", 0x0800000, 0x14cd7dce, BRF_PRG | BRF_ESS },
@@ -322,29 +320,29 @@ static struct BurnRomInfo doa2RomDesc[] = {
 STD_ROM_PICK(doa2)
 STD_ROM_FN(doa2)
 static NaomiZipEntry doa2ZipEntries[] = {
-    ZIPENTRY("epr-22207.ic22", NAOMI_BIOS_COUNT + 0),
-    ZIPENTRY("mpr-22100.ic1", NAOMI_BIOS_COUNT + 1),
-    ZIPENTRY("mpr-22101.ic2", NAOMI_BIOS_COUNT + 2),
-    ZIPENTRY("mpr-22102.ic3", NAOMI_BIOS_COUNT + 3),
-    ZIPENTRY("mpr-22103.ic4", NAOMI_BIOS_COUNT + 4),
-    ZIPENTRY("mpr-22104.ic5", NAOMI_BIOS_COUNT + 5),
-    ZIPENTRY("mpr-22105.ic6", NAOMI_BIOS_COUNT + 6),
-    ZIPENTRY("mpr-22106.ic7", NAOMI_BIOS_COUNT + 7),
-    ZIPENTRY("mpr-22107.ic8", NAOMI_BIOS_COUNT + 8),
-    ZIPENTRY("mpr-22108.ic9", NAOMI_BIOS_COUNT + 9),
-    ZIPENTRY("mpr-22109.ic10", NAOMI_BIOS_COUNT + 10),
-    ZIPENTRY("mpr-22110.ic11", NAOMI_BIOS_COUNT + 11),
-    ZIPENTRY("mpr-22111.ic12s", NAOMI_BIOS_COUNT + 12),
-    ZIPENTRY("mpr-22112.ic13s", NAOMI_BIOS_COUNT + 13),
-    ZIPENTRY("mpr-22113.ic14s", NAOMI_BIOS_COUNT + 14),
-    ZIPENTRY("mpr-22114.ic15s", NAOMI_BIOS_COUNT + 15),
-    ZIPENTRY("mpr-22115.ic16s", NAOMI_BIOS_COUNT + 16),
-    ZIPENTRY("mpr-22116.ic17s", NAOMI_BIOS_COUNT + 17),
-    ZIPENTRY("mpr-22117.ic18s", NAOMI_BIOS_COUNT + 18),
-    ZIPENTRY("mpr-22118.ic19s", NAOMI_BIOS_COUNT + 19),
-    ZIPENTRY("mpr-22119.ic20s", NAOMI_BIOS_COUNT + 20),
-    ZIPENTRY("mpr-22120.ic21s", NAOMI_BIOS_COUNT + 21),
-    ZIPENTRY("841-0003.sf", NAOMI_BIOS_COUNT + 22),
+    ZIPENTRY("epr-22207.ic22", 0),
+    ZIPENTRY("mpr-22100.ic1", 1),
+    ZIPENTRY("mpr-22101.ic2", 2),
+    ZIPENTRY("mpr-22102.ic3", 3),
+    ZIPENTRY("mpr-22103.ic4", 4),
+    ZIPENTRY("mpr-22104.ic5", 5),
+    ZIPENTRY("mpr-22105.ic6", 6),
+    ZIPENTRY("mpr-22106.ic7", 7),
+    ZIPENTRY("mpr-22107.ic8", 8),
+    ZIPENTRY("mpr-22108.ic9", 9),
+    ZIPENTRY("mpr-22109.ic10", 10),
+    ZIPENTRY("mpr-22110.ic11", 11),
+    ZIPENTRY("mpr-22111.ic12s", 12),
+    ZIPENTRY("mpr-22112.ic13s", 13),
+    ZIPENTRY("mpr-22113.ic14s", 14),
+    ZIPENTRY("mpr-22114.ic15s", 15),
+    ZIPENTRY("mpr-22115.ic16s", 16),
+    ZIPENTRY("mpr-22116.ic17s", 17),
+    ZIPENTRY("mpr-22117.ic18s", 18),
+    ZIPENTRY("mpr-22118.ic19s", 19),
+    ZIPENTRY("mpr-22119.ic20s", 20),
+    ZIPENTRY("mpr-22120.ic21s", 21),
+    ZIPENTRY("841-0003.sf", 22),
     ZIPEND
 };
 NAOMI_INIT_FUNC(doa2, doa2ZipEntries, NAOMI_GAME_INPUT_DIGITAL, "naomi.zip", "naomi", "naomi", AWAVE_PLATFORM_NAOMI)
@@ -357,7 +355,6 @@ struct BurnDriver BurnDrvNaomidoa2 = {
 };
 // Spawn: In the Demon's Hand (Rev B)
 static struct BurnRomInfo spawnRomDesc[] = {
-    NAOMI_BIOS_ROMS,
     { "epr-22977b.ic22", 0x0400000, 0x814ff5d1, BRF_PRG | BRF_ESS },
     { "mpr-22967.ic1", 0x0800000, 0x78c7d914, BRF_PRG | BRF_ESS },
     { "mpr-22968.ic2", 0x0800000, 0x8c4ae1bb, BRF_PRG | BRF_ESS },
@@ -373,17 +370,17 @@ static struct BurnRomInfo spawnRomDesc[] = {
 STD_ROM_PICK(spawn)
 STD_ROM_FN(spawn)
 static NaomiZipEntry spawnZipEntries[] = {
-    ZIPENTRY("epr-22977b.ic22", NAOMI_BIOS_COUNT + 0),
-    ZIPENTRY("mpr-22967.ic1", NAOMI_BIOS_COUNT + 1),
-    ZIPENTRY("mpr-22968.ic2", NAOMI_BIOS_COUNT + 2),
-    ZIPENTRY("mpr-22969.ic3", NAOMI_BIOS_COUNT + 3),
-    ZIPENTRY("mpr-22970.ic4", NAOMI_BIOS_COUNT + 4),
-    ZIPENTRY("mpr-22971.ic5", NAOMI_BIOS_COUNT + 5),
-    ZIPENTRY("mpr-22972.ic6", NAOMI_BIOS_COUNT + 6),
-    ZIPENTRY("mpr-22973.ic7", NAOMI_BIOS_COUNT + 7),
-    ZIPENTRY("mpr-22974.ic8", NAOMI_BIOS_COUNT + 8),
-    ZIPENTRY("mpr-22975.ic9", NAOMI_BIOS_COUNT + 9),
-    ZIPENTRY("mpr-22976.ic10", NAOMI_BIOS_COUNT + 10),
+    ZIPENTRY("epr-22977b.ic22", 0),
+    ZIPENTRY("mpr-22967.ic1", 1),
+    ZIPENTRY("mpr-22968.ic2", 2),
+    ZIPENTRY("mpr-22969.ic3", 3),
+    ZIPENTRY("mpr-22970.ic4", 4),
+    ZIPENTRY("mpr-22971.ic5", 5),
+    ZIPENTRY("mpr-22972.ic6", 6),
+    ZIPENTRY("mpr-22973.ic7", 7),
+    ZIPENTRY("mpr-22974.ic8", 8),
+    ZIPENTRY("mpr-22975.ic9", 9),
+    ZIPENTRY("mpr-22976.ic10", 10),
     ZIPEND
 };
 NAOMI_INIT_FUNC(spawn, spawnZipEntries, NAOMI_GAME_INPUT_DIGITAL, "naomi.zip", "naomi", "naomi", AWAVE_PLATFORM_NAOMI)
@@ -396,7 +393,6 @@ struct BurnDriver BurnDrvNaomispawn = {
 };
 // Marvel Vs. Capcom 2: New Age of Heroes (Export, Korea, Rev A)
 static struct BurnRomInfo mvsc2RomDesc[] = {
-    NAOMI_BIOS_ROMS,
     { "epr-23085a.ic11", 0x0400000, 0x5d5b7ad1, BRF_PRG | BRF_ESS },
     { "mpr-23048.ic17s", 0x0800000, 0x93d7a63a, BRF_PRG | BRF_ESS },
     { "mpr-23049.ic18", 0x0800000, 0x003dcce0, BRF_PRG | BRF_ESS },
@@ -413,32 +409,30 @@ static struct BurnRomInfo mvsc2RomDesc[] = {
     { "mpr-23060.ic29", 0x0800000, 0x67519942, BRF_PRG | BRF_ESS },
     { "mpr-23061.ic30s", 0x0800000, 0xfb1844c4, BRF_PRG | BRF_ESS },
     { "mpr-23083.ic31", 0x0400000, 0xc61d2dfe, BRF_PRG | BRF_ESS },
-    { "mpr-23083.ic31", 0x0400000, 0xc61d2dfe, BRF_PRG | BRF_ESS },
     { "mpr-23084.ic32s", 0x0400000, 0x4ebbbdd9, BRF_PRG | BRF_ESS },
     { "25lc040.ic13s", 0x0000200, 0xdc449637, BRF_PRG | BRF_ESS },
 };
 STD_ROM_PICK(mvsc2)
 STD_ROM_FN(mvsc2)
 static NaomiZipEntry mvsc2ZipEntries[] = {
-    ZIPENTRY("epr-23085a.ic11", NAOMI_BIOS_COUNT + 0),
-    ZIPENTRY("mpr-23048.ic17s", NAOMI_BIOS_COUNT + 1),
-    ZIPENTRY("mpr-23049.ic18", NAOMI_BIOS_COUNT + 2),
-    ZIPENTRY("mpr-23050.ic19s", NAOMI_BIOS_COUNT + 3),
-    ZIPENTRY("mpr-23051.ic20", NAOMI_BIOS_COUNT + 4),
-    ZIPENTRY("mpr-23052.ic21s", NAOMI_BIOS_COUNT + 5),
-    ZIPENTRY("mpr-23053.ic22", NAOMI_BIOS_COUNT + 6),
-    ZIPENTRY("mpr-23054.ic23s", NAOMI_BIOS_COUNT + 7),
-    ZIPENTRY("mpr-23055.ic24", NAOMI_BIOS_COUNT + 8),
-    ZIPENTRY("mpr-23056.ic25s", NAOMI_BIOS_COUNT + 9),
-    ZIPENTRY("mpr-23057.ic26", NAOMI_BIOS_COUNT + 10),
-    ZIPENTRY("mpr-23058.ic27s", NAOMI_BIOS_COUNT + 11),
-    ZIPENTRY("mpr-23059.ic28", NAOMI_BIOS_COUNT + 12),
-    ZIPENTRY("mpr-23060.ic29", NAOMI_BIOS_COUNT + 13),
-    ZIPENTRY("mpr-23061.ic30s", NAOMI_BIOS_COUNT + 14),
-    ZIPENTRY("mpr-23083.ic31", NAOMI_BIOS_COUNT + 15),
-    ZIPENTRY("mpr-23083.ic31", NAOMI_BIOS_COUNT + 16),
-    ZIPENTRY("mpr-23084.ic32s", NAOMI_BIOS_COUNT + 17),
-    ZIPENTRY("25lc040.ic13s", NAOMI_BIOS_COUNT + 18),
+    ZIPENTRY("epr-23085a.ic11", 0),
+    ZIPENTRY("mpr-23048.ic17s", 1),
+    ZIPENTRY("mpr-23049.ic18", 2),
+    ZIPENTRY("mpr-23050.ic19s", 3),
+    ZIPENTRY("mpr-23051.ic20", 4),
+    ZIPENTRY("mpr-23052.ic21s", 5),
+    ZIPENTRY("mpr-23053.ic22", 6),
+    ZIPENTRY("mpr-23054.ic23s", 7),
+    ZIPENTRY("mpr-23055.ic24", 8),
+    ZIPENTRY("mpr-23056.ic25s", 9),
+    ZIPENTRY("mpr-23057.ic26", 10),
+    ZIPENTRY("mpr-23058.ic27s", 11),
+    ZIPENTRY("mpr-23059.ic28", 12),
+    ZIPENTRY("mpr-23060.ic29", 13),
+    ZIPENTRY("mpr-23061.ic30s", 14),
+    ZIPENTRY("mpr-23083.ic31", 15),
+    ZIPENTRY("mpr-23084.ic32s", 16),
+    ZIPENTRY("25lc040.ic13s", 17),
     ZIPEND
 };
 NAOMI_INIT_FUNC(mvsc2, mvsc2ZipEntries, NAOMI_GAME_INPUT_DIGITAL, "naomi.zip", "naomi", "naomi", AWAVE_PLATFORM_NAOMI)
@@ -451,7 +445,6 @@ struct BurnDriver BurnDrvNaomimvsc2 = {
 };
 // Marvel Vs. Capcom 2: New Age of Heroes (USA, Rev A)
 static struct BurnRomInfo mvsc2uRomDesc[] = {
-    NAOMI_BIOS_ROMS,
     { "epr-23062a.ic22", 0x0400000, 0x96038276, BRF_PRG | BRF_ESS },
     { "mpr-23048.ic1", 0x0800000, 0x93d7a63a, BRF_PRG | BRF_ESS },
     { "mpr-23049.ic2", 0x0800000, 0x003dcce0, BRF_PRG | BRF_ESS },
@@ -472,22 +465,22 @@ static struct BurnRomInfo mvsc2uRomDesc[] = {
 STD_ROM_PICK(mvsc2u)
 STD_ROM_FN(mvsc2u)
 static NaomiZipEntry mvsc2uZipEntries[] = {
-    ZIPENTRY("epr-23062a.ic22", NAOMI_BIOS_COUNT + 0),
-    ZIPENTRY("mpr-23048.ic1", NAOMI_BIOS_COUNT + 1),
-    ZIPENTRY("mpr-23049.ic2", NAOMI_BIOS_COUNT + 2),
-    ZIPENTRY("mpr-23050.ic3", NAOMI_BIOS_COUNT + 3),
-    ZIPENTRY("mpr-23051.ic4", NAOMI_BIOS_COUNT + 4),
-    ZIPENTRY("mpr-23052.ic5", NAOMI_BIOS_COUNT + 5),
-    ZIPENTRY("mpr-23053.ic6", NAOMI_BIOS_COUNT + 6),
-    ZIPENTRY("mpr-23054.ic7", NAOMI_BIOS_COUNT + 7),
-    ZIPENTRY("mpr-23055.ic8", NAOMI_BIOS_COUNT + 8),
-    ZIPENTRY("mpr-23056.ic9", NAOMI_BIOS_COUNT + 9),
-    ZIPENTRY("mpr-23057.ic10", NAOMI_BIOS_COUNT + 10),
-    ZIPENTRY("mpr-23058.ic11", NAOMI_BIOS_COUNT + 11),
-    ZIPENTRY("mpr-23059.ic12s", NAOMI_BIOS_COUNT + 12),
-    ZIPENTRY("mpr-23060.ic13s", NAOMI_BIOS_COUNT + 13),
-    ZIPENTRY("mpr-23061.ic14s", NAOMI_BIOS_COUNT + 14),
-    ZIPENTRY("sflash.ic37", NAOMI_BIOS_COUNT + 15),
+    ZIPENTRY("epr-23062a.ic22", 0),
+    ZIPENTRY("mpr-23048.ic1", 1),
+    ZIPENTRY("mpr-23049.ic2", 2),
+    ZIPENTRY("mpr-23050.ic3", 3),
+    ZIPENTRY("mpr-23051.ic4", 4),
+    ZIPENTRY("mpr-23052.ic5", 5),
+    ZIPENTRY("mpr-23053.ic6", 6),
+    ZIPENTRY("mpr-23054.ic7", 7),
+    ZIPENTRY("mpr-23055.ic8", 8),
+    ZIPENTRY("mpr-23056.ic9", 9),
+    ZIPENTRY("mpr-23057.ic10", 10),
+    ZIPENTRY("mpr-23058.ic11", 11),
+    ZIPENTRY("mpr-23059.ic12s", 12),
+    ZIPENTRY("mpr-23060.ic13s", 13),
+    ZIPENTRY("mpr-23061.ic14s", 14),
+    ZIPENTRY("sflash.ic37", 15),
     ZIPEND
 };
 NAOMI_INIT_FUNC(mvsc2u, mvsc2uZipEntries, NAOMI_GAME_INPUT_DIGITAL, "naomi.zip", "naomi", "naomi", AWAVE_PLATFORM_NAOMI)
@@ -500,7 +493,6 @@ struct BurnDriver BurnDrvNaomimvsc2u = {
 };
 // Power Stone 2
 static struct BurnRomInfo pstone2RomDesc[] = {
-    NAOMI_BIOS_ROMS,
     { "epr-23127.ic22", 0x0400000, 0x185761d6, BRF_PRG | BRF_ESS },
     { "mpr-23118.ic1", 0x0800000, 0xc69f3c3c, BRF_PRG | BRF_ESS },
     { "mpr-23119.ic2", 0x0800000, 0xa80d444d, BRF_PRG | BRF_ESS },
@@ -515,16 +507,16 @@ static struct BurnRomInfo pstone2RomDesc[] = {
 STD_ROM_PICK(pstone2)
 STD_ROM_FN(pstone2)
 static NaomiZipEntry pstone2ZipEntries[] = {
-    ZIPENTRY("epr-23127.ic22", NAOMI_BIOS_COUNT + 0),
-    ZIPENTRY("mpr-23118.ic1", NAOMI_BIOS_COUNT + 1),
-    ZIPENTRY("mpr-23119.ic2", NAOMI_BIOS_COUNT + 2),
-    ZIPENTRY("mpr-23120.ic3", NAOMI_BIOS_COUNT + 3),
-    ZIPENTRY("mpr-23121.ic4", NAOMI_BIOS_COUNT + 4),
-    ZIPENTRY("mpr-23122.ic5", NAOMI_BIOS_COUNT + 5),
-    ZIPENTRY("mpr-23123.ic6", NAOMI_BIOS_COUNT + 6),
-    ZIPENTRY("mpr-23124.ic7", NAOMI_BIOS_COUNT + 7),
-    ZIPENTRY("mpr-23125.ic8", NAOMI_BIOS_COUNT + 8),
-    ZIPENTRY("mpr-23126.ic9", NAOMI_BIOS_COUNT + 9),
+    ZIPENTRY("epr-23127.ic22", 0),
+    ZIPENTRY("mpr-23118.ic1", 1),
+    ZIPENTRY("mpr-23119.ic2", 2),
+    ZIPENTRY("mpr-23120.ic3", 3),
+    ZIPENTRY("mpr-23121.ic4", 4),
+    ZIPENTRY("mpr-23122.ic5", 5),
+    ZIPENTRY("mpr-23123.ic6", 6),
+    ZIPENTRY("mpr-23124.ic7", 7),
+    ZIPENTRY("mpr-23125.ic8", 8),
+    ZIPENTRY("mpr-23126.ic9", 9),
     ZIPEND
 };
 NAOMI_INIT_FUNC(pstone2, pstone2ZipEntries, NAOMI_GAME_INPUT_DIGITAL, "naomi.zip", "naomi", "naomi", AWAVE_PLATFORM_NAOMI)
@@ -537,7 +529,6 @@ struct BurnDriver BurnDrvNaomipstone2 = {
 };
 // Capcom Vs. SNK: Millennium Fight 2000 (Rev C)
 static struct BurnRomInfo capsnkRomDesc[] = {
-    NAOMI_BIOS_ROMS,
     { "epr-23511c.ic22", 0x0400000, 0x3dbf8eb2, BRF_PRG | BRF_ESS },
     { "mpr-23504.ic1", 0x1000000, 0xe01a31d2, BRF_PRG | BRF_ESS },
     { "mpr-23505.ic2", 0x1000000, 0x3a34d5fe, BRF_PRG | BRF_ESS },
@@ -550,14 +541,14 @@ static struct BurnRomInfo capsnkRomDesc[] = {
 STD_ROM_PICK(capsnk)
 STD_ROM_FN(capsnk)
 static NaomiZipEntry capsnkZipEntries[] = {
-    ZIPENTRY("epr-23511c.ic22", NAOMI_BIOS_COUNT + 0),
-    ZIPENTRY("mpr-23504.ic1", NAOMI_BIOS_COUNT + 1),
-    ZIPENTRY("mpr-23505.ic2", NAOMI_BIOS_COUNT + 2),
-    ZIPENTRY("mpr-23506.ic3", NAOMI_BIOS_COUNT + 3),
-    ZIPENTRY("mpr-23507.ic4", NAOMI_BIOS_COUNT + 4),
-    ZIPENTRY("mpr-23508.ic5", NAOMI_BIOS_COUNT + 5),
-    ZIPENTRY("mpr-23509.ic6", NAOMI_BIOS_COUNT + 6),
-    ZIPENTRY("mpr-23510.ic7", NAOMI_BIOS_COUNT + 7),
+    ZIPENTRY("epr-23511c.ic22", 0),
+    ZIPENTRY("mpr-23504.ic1", 1),
+    ZIPENTRY("mpr-23505.ic2", 2),
+    ZIPENTRY("mpr-23506.ic3", 3),
+    ZIPENTRY("mpr-23507.ic4", 4),
+    ZIPENTRY("mpr-23508.ic5", 5),
+    ZIPENTRY("mpr-23509.ic6", 6),
+    ZIPENTRY("mpr-23510.ic7", 7),
     ZIPEND
 };
 NAOMI_INIT_FUNC(capsnk, capsnkZipEntries, NAOMI_GAME_INPUT_DIGITAL, "naomi.zip", "naomi", "naomi", AWAVE_PLATFORM_NAOMI)
@@ -570,7 +561,6 @@ struct BurnDriver BurnDrvNaomicapsnk = {
 };
 // Cannon Spike / Gun Spike
 static struct BurnRomInfo cspikeRomDesc[] = {
-    NAOMI_BIOS_ROMS,
     { "epr-23210.ic22", 0x0400000, 0xa15c54b5, BRF_PRG | BRF_ESS },
     { "mpr-23198.ic1", 0x0800000, 0xce8d3edf, BRF_PRG | BRF_ESS },
     { "mpr-23199.ic2", 0x0800000, 0x0979392a, BRF_PRG | BRF_ESS },
@@ -588,19 +578,19 @@ static struct BurnRomInfo cspikeRomDesc[] = {
 STD_ROM_PICK(cspike)
 STD_ROM_FN(cspike)
 static NaomiZipEntry cspikeZipEntries[] = {
-    ZIPENTRY("epr-23210.ic22", NAOMI_BIOS_COUNT + 0),
-    ZIPENTRY("mpr-23198.ic1", NAOMI_BIOS_COUNT + 1),
-    ZIPENTRY("mpr-23199.ic2", NAOMI_BIOS_COUNT + 2),
-    ZIPENTRY("mpr-23200.ic3", NAOMI_BIOS_COUNT + 3),
-    ZIPENTRY("mpr-23201.ic4", NAOMI_BIOS_COUNT + 4),
-    ZIPENTRY("mpr-23202.ic5", NAOMI_BIOS_COUNT + 5),
-    ZIPENTRY("mpr-23203.ic6", NAOMI_BIOS_COUNT + 6),
-    ZIPENTRY("mpr-23204.ic7", NAOMI_BIOS_COUNT + 7),
-    ZIPENTRY("mpr-23205.ic8", NAOMI_BIOS_COUNT + 8),
-    ZIPENTRY("mpr-23206.ic9", NAOMI_BIOS_COUNT + 9),
-    ZIPENTRY("mpr-23207.ic10", NAOMI_BIOS_COUNT + 10),
-    ZIPENTRY("mpr-23208.ic11", NAOMI_BIOS_COUNT + 11),
-    ZIPENTRY("mpr-23209.ic12s", NAOMI_BIOS_COUNT + 12),
+    ZIPENTRY("epr-23210.ic22", 0),
+    ZIPENTRY("mpr-23198.ic1", 1),
+    ZIPENTRY("mpr-23199.ic2", 2),
+    ZIPENTRY("mpr-23200.ic3", 3),
+    ZIPENTRY("mpr-23201.ic4", 4),
+    ZIPENTRY("mpr-23202.ic5", 5),
+    ZIPENTRY("mpr-23203.ic6", 6),
+    ZIPENTRY("mpr-23204.ic7", 7),
+    ZIPENTRY("mpr-23205.ic8", 8),
+    ZIPENTRY("mpr-23206.ic9", 9),
+    ZIPENTRY("mpr-23207.ic10", 10),
+    ZIPENTRY("mpr-23208.ic11", 11),
+    ZIPENTRY("mpr-23209.ic12s", 12),
     ZIPEND
 };
 NAOMI_INIT_FUNC(cspike, cspikeZipEntries, NAOMI_GAME_INPUT_DIGITAL, "naomi.zip", "naomi", "naomi", AWAVE_PLATFORM_NAOMI)
@@ -613,7 +603,6 @@ struct BurnDriver BurnDrvNaomicspike = {
 };
 // Guilty Gear X
 static struct BurnRomInfo ggxRomDesc[] = {
-    NAOMI_BIOS_ROMS,
     { "epr-23356.ic22", 0x0400000, 0xed2d289f, BRF_PRG | BRF_ESS },
     { "mpr-23342.ic1", 0x0800000, 0x4fd89557, BRF_PRG | BRF_ESS },
     { "mpr-23343.ic2", 0x0800000, 0x2e4417b6, BRF_PRG | BRF_ESS },
@@ -633,21 +622,21 @@ static struct BurnRomInfo ggxRomDesc[] = {
 STD_ROM_PICK(ggx)
 STD_ROM_FN(ggx)
 static NaomiZipEntry ggxZipEntries[] = {
-    ZIPENTRY("epr-23356.ic22", NAOMI_BIOS_COUNT + 0),
-    ZIPENTRY("mpr-23342.ic1", NAOMI_BIOS_COUNT + 1),
-    ZIPENTRY("mpr-23343.ic2", NAOMI_BIOS_COUNT + 2),
-    ZIPENTRY("mpr-23344.ic3", NAOMI_BIOS_COUNT + 3),
-    ZIPENTRY("mpr-23345.ic4", NAOMI_BIOS_COUNT + 4),
-    ZIPENTRY("mpr-23346.ic5", NAOMI_BIOS_COUNT + 5),
-    ZIPENTRY("mpr-23347.ic6", NAOMI_BIOS_COUNT + 6),
-    ZIPENTRY("mpr-23348.ic7", NAOMI_BIOS_COUNT + 7),
-    ZIPENTRY("mpr-23349.ic8", NAOMI_BIOS_COUNT + 8),
-    ZIPENTRY("mpr-23350.ic9", NAOMI_BIOS_COUNT + 9),
-    ZIPENTRY("mpr-23351.ic10", NAOMI_BIOS_COUNT + 10),
-    ZIPENTRY("mpr-23352.ic11", NAOMI_BIOS_COUNT + 11),
-    ZIPENTRY("mpr-23353.ic12s", NAOMI_BIOS_COUNT + 12),
-    ZIPENTRY("mpr-23354.ic13s", NAOMI_BIOS_COUNT + 13),
-    ZIPENTRY("mpr-23355.ic14s", NAOMI_BIOS_COUNT + 14),
+    ZIPENTRY("epr-23356.ic22", 0),
+    ZIPENTRY("mpr-23342.ic1", 1),
+    ZIPENTRY("mpr-23343.ic2", 2),
+    ZIPENTRY("mpr-23344.ic3", 3),
+    ZIPENTRY("mpr-23345.ic4", 4),
+    ZIPENTRY("mpr-23346.ic5", 5),
+    ZIPENTRY("mpr-23347.ic6", 6),
+    ZIPENTRY("mpr-23348.ic7", 7),
+    ZIPENTRY("mpr-23349.ic8", 8),
+    ZIPENTRY("mpr-23350.ic9", 9),
+    ZIPENTRY("mpr-23351.ic10", 10),
+    ZIPENTRY("mpr-23352.ic11", 11),
+    ZIPENTRY("mpr-23353.ic12s", 12),
+    ZIPENTRY("mpr-23354.ic13s", 13),
+    ZIPENTRY("mpr-23355.ic14s", 14),
     ZIPEND
 };
 NAOMI_INIT_FUNC(ggx, ggxZipEntries, NAOMI_GAME_INPUT_DIGITAL, "naomi.zip", "naomi", "naomi", AWAVE_PLATFORM_NAOMI)
@@ -660,7 +649,6 @@ struct BurnDriver BurnDrvNaomiggx = {
 };
 // Giga Wing 2
 static struct BurnRomInfo gwing2RomDesc[] = {
-    NAOMI_BIOS_ROMS,
     { "epr-22270.ic22", 0x0200000, 0x876b3c97, BRF_PRG | BRF_ESS },
     { "mpr-22271.ic1", 0x1000000, 0x9a072af5, BRF_PRG | BRF_ESS },
     { "mpr-22272.ic2", 0x1000000, 0x1e816ab1, BRF_PRG | BRF_ESS },
@@ -671,12 +659,12 @@ static struct BurnRomInfo gwing2RomDesc[] = {
 STD_ROM_PICK(gwing2)
 STD_ROM_FN(gwing2)
 static NaomiZipEntry gwing2ZipEntries[] = {
-    ZIPENTRY("epr-22270.ic22", NAOMI_BIOS_COUNT + 0),
-    ZIPENTRY("mpr-22271.ic1", NAOMI_BIOS_COUNT + 1),
-    ZIPENTRY("mpr-22272.ic2", NAOMI_BIOS_COUNT + 2),
-    ZIPENTRY("mpr-22273.ic3", NAOMI_BIOS_COUNT + 3),
-    ZIPENTRY("mpr-22274.ic4", NAOMI_BIOS_COUNT + 4),
-    ZIPENTRY("mpr-22275.ic5", NAOMI_BIOS_COUNT + 5),
+    ZIPENTRY("epr-22270.ic22", 0),
+    ZIPENTRY("mpr-22271.ic1", 1),
+    ZIPENTRY("mpr-22272.ic2", 2),
+    ZIPENTRY("mpr-22273.ic3", 3),
+    ZIPENTRY("mpr-22274.ic4", 4),
+    ZIPENTRY("mpr-22275.ic5", 5),
     ZIPEND
 };
 NAOMI_INIT_FUNC(gwing2, gwing2ZipEntries, NAOMI_GAME_INPUT_DIGITAL, "naomi.zip", "naomi", "naomi", AWAVE_PLATFORM_NAOMI)
@@ -689,7 +677,6 @@ struct BurnDriver BurnDrvNaomigwing2 = {
 };
 // Project Justice / Moero! Justice Gakuen (Rev B)
 static struct BurnRomInfo pjusticRomDesc[] = {
-    NAOMI_BIOS_ROMS,
     { "epr-23548b.ic22", 0x0400000, 0xd0dbdf40, BRF_PRG | BRF_ESS },
     { "mpr-23537.ic1", 0x1000000, 0xa2462770, BRF_PRG | BRF_ESS },
     { "mpr-23538.ic2", 0x1000000, 0xe4480832, BRF_PRG | BRF_ESS },
@@ -706,18 +693,18 @@ static struct BurnRomInfo pjusticRomDesc[] = {
 STD_ROM_PICK(pjustic)
 STD_ROM_FN(pjustic)
 static NaomiZipEntry pjusticZipEntries[] = {
-    ZIPENTRY("epr-23548b.ic22", NAOMI_BIOS_COUNT + 0),
-    ZIPENTRY("mpr-23537.ic1", NAOMI_BIOS_COUNT + 1),
-    ZIPENTRY("mpr-23538.ic2", NAOMI_BIOS_COUNT + 2),
-    ZIPENTRY("mpr-23539.ic3", NAOMI_BIOS_COUNT + 3),
-    ZIPENTRY("mpr-23540.ic4", NAOMI_BIOS_COUNT + 4),
-    ZIPENTRY("mpr-23541.ic5", NAOMI_BIOS_COUNT + 5),
-    ZIPENTRY("mpr-23542.ic6", NAOMI_BIOS_COUNT + 6),
-    ZIPENTRY("mpr-23543.ic7", NAOMI_BIOS_COUNT + 7),
-    ZIPENTRY("mpr-23544.ic8", NAOMI_BIOS_COUNT + 8),
-    ZIPENTRY("mpr-23545.ic9", NAOMI_BIOS_COUNT + 9),
-    ZIPENTRY("mpr-23546.ic10", NAOMI_BIOS_COUNT + 10),
-    ZIPENTRY("mpr-23547.ic11", NAOMI_BIOS_COUNT + 11),
+    ZIPENTRY("epr-23548b.ic22", 0),
+    ZIPENTRY("mpr-23537.ic1", 1),
+    ZIPENTRY("mpr-23538.ic2", 2),
+    ZIPENTRY("mpr-23539.ic3", 3),
+    ZIPENTRY("mpr-23540.ic4", 4),
+    ZIPENTRY("mpr-23541.ic5", 5),
+    ZIPENTRY("mpr-23542.ic6", 6),
+    ZIPENTRY("mpr-23543.ic7", 7),
+    ZIPENTRY("mpr-23544.ic8", 8),
+    ZIPENTRY("mpr-23545.ic9", 9),
+    ZIPENTRY("mpr-23546.ic10", 10),
+    ZIPENTRY("mpr-23547.ic11", 11),
     ZIPEND
 };
 NAOMI_INIT_FUNC(pjustic, pjusticZipEntries, NAOMI_GAME_INPUT_DIGITAL, "naomi.zip", "naomi", "naomi", AWAVE_PLATFORM_NAOMI)
@@ -730,7 +717,6 @@ struct BurnDriver BurnDrvNaomipjustic = {
 };
 // Zero Gunner 2
 static struct BurnRomInfo zerogu2RomDesc[] = {
-    NAOMI_BIOS_ROMS,
     { "epr-23689.ic22", 0x0400000, 0xba42267c, BRF_PRG | BRF_ESS },
     { "mpr-23684.ic1", 0x1000000, 0x035aec98, BRF_PRG | BRF_ESS },
     { "mpr-23685.ic2", 0x1000000, 0xd878ff99, BRF_PRG | BRF_ESS },
@@ -741,12 +727,12 @@ static struct BurnRomInfo zerogu2RomDesc[] = {
 STD_ROM_PICK(zerogu2)
 STD_ROM_FN(zerogu2)
 static NaomiZipEntry zerogu2ZipEntries[] = {
-    ZIPENTRY("epr-23689.ic22", NAOMI_BIOS_COUNT + 0),
-    ZIPENTRY("mpr-23684.ic1", NAOMI_BIOS_COUNT + 1),
-    ZIPENTRY("mpr-23685.ic2", NAOMI_BIOS_COUNT + 2),
-    ZIPENTRY("mpr-23686.ic3", NAOMI_BIOS_COUNT + 3),
-    ZIPENTRY("mpr-23687.ic4", NAOMI_BIOS_COUNT + 4),
-    ZIPENTRY("mpr-23688.ic5", NAOMI_BIOS_COUNT + 5),
+    ZIPENTRY("epr-23689.ic22", 0),
+    ZIPENTRY("mpr-23684.ic1", 1),
+    ZIPENTRY("mpr-23685.ic2", 2),
+    ZIPENTRY("mpr-23686.ic3", 3),
+    ZIPENTRY("mpr-23687.ic4", 4),
+    ZIPENTRY("mpr-23688.ic5", 5),
     ZIPEND
 };
 NAOMI_INIT_FUNC(zerogu2, zerogu2ZipEntries, NAOMI_GAME_INPUT_DIGITAL, "naomi.zip", "naomi", "naomi", AWAVE_PLATFORM_NAOMI)
@@ -759,7 +745,6 @@ struct BurnDriver BurnDrvNaomizerogu2 = {
 };
 // Virtua Tennis / Power Smash
 static struct BurnRomInfo vtennisRomDesc[] = {
-    NAOMI_BIOS_ROMS,
     { "epr-22927.ic22", 0x0400000, 0x89781723, BRF_PRG | BRF_ESS },
     { "mpr-22916.ic1", 0x0800000, 0x903873e5, BRF_PRG | BRF_ESS },
     { "mpr-22917.ic2", 0x0800000, 0x5f020fa6, BRF_PRG | BRF_ESS },
@@ -776,18 +761,18 @@ static struct BurnRomInfo vtennisRomDesc[] = {
 STD_ROM_PICK(vtennis)
 STD_ROM_FN(vtennis)
 static NaomiZipEntry vtennisZipEntries[] = {
-    ZIPENTRY("epr-22927.ic22", NAOMI_BIOS_COUNT + 0),
-    ZIPENTRY("mpr-22916.ic1", NAOMI_BIOS_COUNT + 1),
-    ZIPENTRY("mpr-22917.ic2", NAOMI_BIOS_COUNT + 2),
-    ZIPENTRY("mpr-22918.ic3", NAOMI_BIOS_COUNT + 3),
-    ZIPENTRY("mpr-22919.ic4", NAOMI_BIOS_COUNT + 4),
-    ZIPENTRY("mpr-22920.ic5", NAOMI_BIOS_COUNT + 5),
-    ZIPENTRY("mpr-22921.ic6", NAOMI_BIOS_COUNT + 6),
-    ZIPENTRY("mpr-22922.ic7", NAOMI_BIOS_COUNT + 7),
-    ZIPENTRY("mpr-22923.ic8", NAOMI_BIOS_COUNT + 8),
-    ZIPENTRY("mpr-22924.ic9", NAOMI_BIOS_COUNT + 9),
-    ZIPENTRY("mpr-22925.ic10", NAOMI_BIOS_COUNT + 10),
-    ZIPENTRY("mpr-22926.ic11", NAOMI_BIOS_COUNT + 11),
+    ZIPENTRY("epr-22927.ic22", 0),
+    ZIPENTRY("mpr-22916.ic1", 1),
+    ZIPENTRY("mpr-22917.ic2", 2),
+    ZIPENTRY("mpr-22918.ic3", 3),
+    ZIPENTRY("mpr-22919.ic4", 4),
+    ZIPENTRY("mpr-22920.ic5", 5),
+    ZIPENTRY("mpr-22921.ic6", 6),
+    ZIPENTRY("mpr-22922.ic7", 7),
+    ZIPENTRY("mpr-22923.ic8", 8),
+    ZIPENTRY("mpr-22924.ic9", 9),
+    ZIPENTRY("mpr-22925.ic10", 10),
+    ZIPENTRY("mpr-22926.ic11", 11),
     ZIPEND
 };
 NAOMI_INIT_FUNC(vtennis, vtennisZipEntries, NAOMI_GAME_INPUT_DIGITAL, "naomi.zip", "naomi", "naomi", AWAVE_PLATFORM_NAOMI)
@@ -800,7 +785,6 @@ struct BurnDriver BurnDrvNaomivtennis = {
 };
 // The House of the Dead 2 (USA)
 static struct BurnRomInfo hotd2RomDesc[] = {
-    HOTD2_BIOS_ROMS,
     { "epr-21585.ic22", 0x0200000, 0xb23d1a0c, BRF_PRG | BRF_ESS },
     { "mpr-21386.ic1", 0x0800000, 0x88fb0562, BRF_PRG | BRF_ESS },
     { "mpr-21387.ic2", 0x0800000, 0x5f4dd576, BRF_PRG | BRF_ESS },
@@ -826,27 +810,27 @@ static struct BurnRomInfo hotd2RomDesc[] = {
 STD_ROM_PICK(hotd2)
 STD_ROM_FN(hotd2)
 static NaomiZipEntry hotd2ZipEntries[] = {
-    ZIPENTRY("epr-21585.ic22", HOTD2_BIOS_COUNT + 0),
-    ZIPENTRY("mpr-21386.ic1", HOTD2_BIOS_COUNT + 1),
-    ZIPENTRY("mpr-21387.ic2", HOTD2_BIOS_COUNT + 2),
-    ZIPENTRY("mpr-21388.ic3", HOTD2_BIOS_COUNT + 3),
-    ZIPENTRY("mpr-21389.ic4", HOTD2_BIOS_COUNT + 4),
-    ZIPENTRY("mpr-21390.ic5", HOTD2_BIOS_COUNT + 5),
-    ZIPENTRY("mpr-21391.ic6", HOTD2_BIOS_COUNT + 6),
-    ZIPENTRY("mpr-21392.ic7", HOTD2_BIOS_COUNT + 7),
-    ZIPENTRY("mpr-21393.ic8", HOTD2_BIOS_COUNT + 8),
-    ZIPENTRY("mpr-21394.ic9", HOTD2_BIOS_COUNT + 9),
-    ZIPENTRY("mpr-21395.ic10", HOTD2_BIOS_COUNT + 10),
-    ZIPENTRY("mpr-21396.ic11", HOTD2_BIOS_COUNT + 11),
-    ZIPENTRY("mpr-21397.ic12s", HOTD2_BIOS_COUNT + 12),
-    ZIPENTRY("mpr-21398.ic13s", HOTD2_BIOS_COUNT + 13),
-    ZIPENTRY("mpr-21399.ic14s", HOTD2_BIOS_COUNT + 14),
-    ZIPENTRY("mpr-21400.ic15s", HOTD2_BIOS_COUNT + 15),
-    ZIPENTRY("mpr-21401.ic16s", HOTD2_BIOS_COUNT + 16),
-    ZIPENTRY("mpr-21402.ic17s", HOTD2_BIOS_COUNT + 17),
-    ZIPENTRY("mpr-21403.ic18s", HOTD2_BIOS_COUNT + 18),
-    ZIPENTRY("mpr-21404.ic19s", HOTD2_BIOS_COUNT + 19),
-    ZIPENTRY("mpr-21405.ic20s", HOTD2_BIOS_COUNT + 20),
+    ZIPENTRY("epr-21585.ic22", 0),
+    ZIPENTRY("mpr-21386.ic1", 1),
+    ZIPENTRY("mpr-21387.ic2", 2),
+    ZIPENTRY("mpr-21388.ic3", 3),
+    ZIPENTRY("mpr-21389.ic4", 4),
+    ZIPENTRY("mpr-21390.ic5", 5),
+    ZIPENTRY("mpr-21391.ic6", 6),
+    ZIPENTRY("mpr-21392.ic7", 7),
+    ZIPENTRY("mpr-21393.ic8", 8),
+    ZIPENTRY("mpr-21394.ic9", 9),
+    ZIPENTRY("mpr-21395.ic10", 10),
+    ZIPENTRY("mpr-21396.ic11", 11),
+    ZIPENTRY("mpr-21397.ic12s", 12),
+    ZIPENTRY("mpr-21398.ic13s", 13),
+    ZIPENTRY("mpr-21399.ic14s", 14),
+    ZIPENTRY("mpr-21400.ic15s", 15),
+    ZIPENTRY("mpr-21401.ic16s", 16),
+    ZIPENTRY("mpr-21402.ic17s", 17),
+    ZIPENTRY("mpr-21403.ic18s", 18),
+    ZIPENTRY("mpr-21404.ic19s", 19),
+    ZIPENTRY("mpr-21405.ic20s", 20),
     ZIPEND
 };
 NAOMI_INIT_FUNC(hotd2, hotd2ZipEntries, NAOMI_GAME_INPUT_LIGHTGUN, "hod2bios.zip", "naomi", "naomi", AWAVE_PLATFORM_NAOMI)
