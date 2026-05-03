@@ -167,14 +167,6 @@ static INT32 shortname##Init() { \
     return NaomiCoreInit(&cfg); \
 }
 
-#define AWAVE_DRIVER(shortname, parent, year, fullname, manufacturer, players, genre, inputinfo, initfunc, rominfo, romname) \
-struct BurnDriver BurnDrvAwave##shortname = { \
-    #shortname, parent, "awbios", NULL, year, fullname "\0", NULL, manufacturer, "Atomiswave", \
-    NULL, NULL, NULL, NULL, BDF_GAME_WORKING, players, HARDWARE_MISC_POST90S, genre, 0, \
-    NULL, rominfo, romname, NULL, NULL, NULL, NULL, inputinfo, NULL, \
-    initfunc, AwaveExitCommon, AwaveFrameCommon, AwaveDrawCommon, AwaveScanCommon, &AwaveRecalc, \
-    0x1000000, 640, 480, 4, 3 \
-};
 
 // BIOS-only entry.
 static struct BurnRomInfo awbiosRomDesc[] = { AWAVE_BIOS_ROMS };
@@ -203,8 +195,13 @@ static NaomiZipEntry sprtshotZipEntries[] = {
     ZIPENTRY("ax0101p01.ic18", 3), ZIPENTRY("ax0101m01.ic11", 4), ZIPENTRY("ax0102m01.ic12", 5), ZIPENTRY("ax0103m01.ic13", 6), ZIPENTRY("ax0104m01.ic14", 7), ZIPEND
 };
 AWAVE_INIT_FUNC(sprtshot, sprtshotZipEntries, NAOMI_GAME_INPUT_LIGHTGUN)
-AWAVE_DRIVER(sprtshot, NULL, "2003", "Sports Shooting USA", "Sammy USA", 2, GBF_MISC, AwaveLightgunInputInfo, sprtshotInit, sprtshotRomInfo, sprtshotRomName)
-
+struct BurnDriver BurnDrvAwavesprtshot = {
+    "sprtshot", NULL, "awbios", NULL, "2003", "Sports Shooting USA" "\0", NULL, "Sammy USA", "Atomiswave",
+    NULL, NULL, NULL, NULL, BDF_GAME_WORKING, 2, HARDWARE_MISC_POST90S, GBF_MISC, 0,
+    NULL, sprtshotRomInfo, sprtshotRomName, NULL, NULL, NULL, NULL, AwaveLightgunInputInfo, NULL,
+    sprtshotInit, AwaveExitCommon, AwaveFrameCommon, AwaveDrawCommon, AwaveScanCommon, &AwaveRecalc,
+    0x1000000, 640, 480, 4, 3
+};
 // Dolphin Blue
 static struct BurnRomInfo dolphinRomDesc[] = {
     AWAVE_BIOS_ROMS,
@@ -221,8 +218,13 @@ static NaomiZipEntry dolphinZipEntries[] = {
     ZIPENTRY("ax0401p01.ic18", 3), ZIPENTRY("ax0401m01.ic11", 4), ZIPENTRY("ax0402m01.ic12", 5), ZIPENTRY("ax0403m01.ic13", 6), ZIPENTRY("ax0404m01.ic14", 7), ZIPENTRY("ax0405m01.ic15", 8), ZIPEND
 };
 AWAVE_INIT_FUNC(dolphin, dolphinZipEntries, NAOMI_GAME_INPUT_DIGITAL)
-AWAVE_DRIVER(dolphin, NULL, "2003", "Dolphin Blue", "Sammy", 2, GBF_MISC, Awave2PInputInfo, dolphinInit, dolphinRomInfo, dolphinRomName)
-
+struct BurnDriver BurnDrvAwavedolphin = {
+    "dolphin", NULL, "awbios", NULL, "2003", "Dolphin Blue" "\0", NULL, "Sammy", "Atomiswave",
+    NULL, NULL, NULL, NULL, BDF_GAME_WORKING, 2, HARDWARE_MISC_POST90S, GBF_MISC, 0,
+    NULL, dolphinRomInfo, dolphinRomName, NULL, NULL, NULL, NULL, Awave2PInputInfo, NULL,
+    dolphinInit, AwaveExitCommon, AwaveFrameCommon, AwaveDrawCommon, AwaveScanCommon, &AwaveRecalc,
+    0x1000000, 640, 480, 4, 3
+};
 // Demolish Fist
 static struct BurnRomInfo demofistRomDesc[] = {
     AWAVE_BIOS_ROMS,
@@ -241,8 +243,13 @@ static NaomiZipEntry demofistZipEntries[] = {
     ZIPENTRY("ax0601p01.ic18", 3), ZIPENTRY("ax0601m01.ic11", 4), ZIPENTRY("ax0602m01.ic12", 5), ZIPENTRY("ax0603m01.ic13", 6), ZIPENTRY("ax0604m01.ic14", 7), ZIPENTRY("ax0605m01.ic15", 8), ZIPENTRY("ax0606m01.ic16", 9), ZIPENTRY("ax0607m01.ic17", 10), ZIPEND
 };
 AWAVE_INIT_FUNC(demofist, demofistZipEntries, NAOMI_GAME_INPUT_DIGITAL)
-AWAVE_DRIVER(demofist, NULL, "2003", "Demolish Fist", "Polygon Magic / Dimps", 2, GBF_MISC, Awave2PInputInfo, demofistInit, demofistRomInfo, demofistRomName)
-
+struct BurnDriver BurnDrvAwavedemofist = {
+    "demofist", NULL, "awbios", NULL, "2003", "Demolish Fist" "\0", NULL, "Polygon Magic / Dimps", "Atomiswave",
+    NULL, NULL, NULL, NULL, BDF_GAME_WORKING, 2, HARDWARE_MISC_POST90S, GBF_MISC, 0,
+    NULL, demofistRomInfo, demofistRomName, NULL, NULL, NULL, NULL, Awave2PInputInfo, NULL,
+    demofistInit, AwaveExitCommon, AwaveFrameCommon, AwaveDrawCommon, AwaveScanCommon, &AwaveRecalc,
+    0x1000000, 640, 480, 4, 3
+};
 // Ranger Mission
 static struct BurnRomInfo rangrmsnRomDesc[] = {
     AWAVE_BIOS_ROMS,
@@ -259,8 +266,13 @@ static NaomiZipEntry rangrmsnZipEntries[] = {
     ZIPENTRY("ax1601p01.ic18", 3), ZIPENTRY("ax1601m01.ic11", 4), ZIPENTRY("ax1602m01.ic12", 5), ZIPENTRY("ax1603m01.ic13", 6), ZIPENTRY("ax1604m01.ic14", 7), ZIPENTRY("ax1605m01.ic15", 8), ZIPEND
 };
 AWAVE_INIT_FUNC(rangrmsn, rangrmsnZipEntries, NAOMI_GAME_INPUT_LIGHTGUN)
-AWAVE_DRIVER(rangrmsn, NULL, "2004", "Ranger Mission", "RIZ Inc. / Sammy", 2, GBF_MISC, AwaveLightgunInputInfo, rangrmsnInit, rangrmsnRomInfo, rangrmsnRomName)
-
+struct BurnDriver BurnDrvAwaverangrmsn = {
+    "rangrmsn", NULL, "awbios", NULL, "2004", "Ranger Mission" "\0", NULL, "RIZ Inc. / Sammy", "Atomiswave",
+    NULL, NULL, NULL, NULL, BDF_GAME_WORKING, 2, HARDWARE_MISC_POST90S, GBF_MISC, 0,
+    NULL, rangrmsnRomInfo, rangrmsnRomName, NULL, NULL, NULL, NULL, AwaveLightgunInputInfo, NULL,
+    rangrmsnInit, AwaveExitCommon, AwaveFrameCommon, AwaveDrawCommon, AwaveScanCommon, &AwaveRecalc,
+    0x1000000, 640, 480, 4, 3
+};
 // The Rumble Fish
 static struct BurnRomInfo rumblefRomDesc[] = {
     AWAVE_BIOS_ROMS,
@@ -279,8 +291,13 @@ static NaomiZipEntry rumblefZipEntries[] = {
     ZIPENTRY("ax1801p01.ic18", 3), ZIPENTRY("ax1801m01.ic11", 4), ZIPENTRY("ax1802m01.ic12", 5), ZIPENTRY("ax1803m01.ic13", 6), ZIPENTRY("ax1804m01.ic14", 7), ZIPENTRY("ax1805m01.ic15", 8), ZIPENTRY("ax1806m01.ic16", 9), ZIPENTRY("ax1807m01.ic17", 10), ZIPEND
 };
 AWAVE_INIT_FUNC(rumblef, rumblefZipEntries, NAOMI_GAME_INPUT_DIGITAL)
-AWAVE_DRIVER(rumblef, NULL, "2004", "The Rumble Fish", "Sammy / Dimps", 2, GBF_MISC, Awave2PInputInfo, rumblefInit, rumblefRomInfo, rumblefRomName)
-
+struct BurnDriver BurnDrvAwaverumblef = {
+    "rumblef", NULL, "awbios", NULL, "2004", "The Rumble Fish" "\0", NULL, "Sammy / Dimps", "Atomiswave",
+    NULL, NULL, NULL, NULL, BDF_GAME_WORKING, 2, HARDWARE_MISC_POST90S, GBF_MISC, 0,
+    NULL, rumblefRomInfo, rumblefRomName, NULL, NULL, NULL, NULL, Awave2PInputInfo, NULL,
+    rumblefInit, AwaveExitCommon, AwaveFrameCommon, AwaveDrawCommon, AwaveScanCommon, &AwaveRecalc,
+    0x1000000, 640, 480, 4, 3
+};
 // Fist Of The North Star / Hokuto no Ken
 static struct BurnRomInfo fotnsRomDesc[] = {
     AWAVE_BIOS_ROMS,
@@ -299,8 +316,13 @@ static NaomiZipEntry fotnsZipEntries[] = {
     ZIPENTRY("ax1901p01.ic18", 3), ZIPENTRY("ax1901m01.ic11", 4), ZIPENTRY("ax1902m01.ic12", 5), ZIPENTRY("ax1903m01.ic13", 6), ZIPENTRY("ax1904m01.ic14", 7), ZIPENTRY("ax1905m01.ic15", 8), ZIPENTRY("ax1906m01.ic16", 9), ZIPENTRY("ax1907m01.ic17", 10), ZIPEND
 };
 AWAVE_INIT_FUNC(fotns, fotnsZipEntries, NAOMI_GAME_INPUT_DIGITAL)
-AWAVE_DRIVER(fotns, NULL, "2005", "Fist Of The North Star / Hokuto no Ken", "Arc System Works / Sega", 2, GBF_MISC, Awave2PInputInfo, fotnsInit, fotnsRomInfo, fotnsRomName)
-
+struct BurnDriver BurnDrvAwavefotns = {
+    "fotns", NULL, "awbios", NULL, "2005", "Fist Of The North Star / Hokuto no Ken" "\0", NULL, "Arc System Works / Sega", "Atomiswave",
+    NULL, NULL, NULL, NULL, BDF_GAME_WORKING, 2, HARDWARE_MISC_POST90S, GBF_MISC, 0,
+    NULL, fotnsRomInfo, fotnsRomName, NULL, NULL, NULL, NULL, Awave2PInputInfo, NULL,
+    fotnsInit, AwaveExitCommon, AwaveFrameCommon, AwaveDrawCommon, AwaveScanCommon, &AwaveRecalc,
+    0x1000000, 640, 480, 4, 3
+};
 // The King of Fighters Neowave
 static struct BurnRomInfo kofnwRomDesc[] = {
     AWAVE_BIOS_ROMS,
@@ -318,8 +340,13 @@ static NaomiZipEntry kofnwZipEntries[] = {
     ZIPENTRY("ax2201en_p01.ic18", 3), ZIPENTRY("ax2201m01.ic11", 4), ZIPENTRY("ax2202m01.ic12", 5), ZIPENTRY("ax2203m01.ic13", 6), ZIPENTRY("ax2204m01.ic14", 7), ZIPENTRY("ax2205m01.ic15", 8), ZIPENTRY("ax2206m01.ic16", 9), ZIPEND
 };
 AWAVE_INIT_FUNC(kofnw, kofnwZipEntries, NAOMI_GAME_INPUT_DIGITAL)
-AWAVE_DRIVER(kofnw, NULL, "2004", "The King of Fighters Neowave", "Sammy / SNK Playmore", 2, GBF_MISC, Awave2PInputInfo, kofnwInit, kofnwRomInfo, kofnwRomName)
-
+struct BurnDriver BurnDrvAwavekofnw = {
+    "kofnw", NULL, "awbios", NULL, "2004", "The King of Fighters Neowave" "\0", NULL, "Sammy / SNK Playmore", "Atomiswave",
+    NULL, NULL, NULL, NULL, BDF_GAME_WORKING, 2, HARDWARE_MISC_POST90S, GBF_MISC, 0,
+    NULL, kofnwRomInfo, kofnwRomName, NULL, NULL, NULL, NULL, Awave2PInputInfo, NULL,
+    kofnwInit, AwaveExitCommon, AwaveFrameCommon, AwaveDrawCommon, AwaveScanCommon, &AwaveRecalc,
+    0x1000000, 640, 480, 4, 3
+};
 // Extreme Hunting
 static struct BurnRomInfo xtrmhuntRomDesc[] = {
     AWAVE_BIOS_ROMS,
@@ -337,8 +364,13 @@ static NaomiZipEntry xtrmhuntZipEntries[] = {
     ZIPENTRY("ax2401p01.ic18", 3), ZIPENTRY("ax2401m01.ic11", 4), ZIPENTRY("ax2402m01.ic12", 5), ZIPENTRY("ax2403m01.ic13", 6), ZIPENTRY("ax2404m01.ic14", 7), ZIPENTRY("ax2405m01.ic15", 8), ZIPENTRY("ax2406m01.ic16", 9), ZIPEND
 };
 AWAVE_INIT_FUNC(xtrmhunt, xtrmhuntZipEntries, NAOMI_GAME_INPUT_LIGHTGUN)
-AWAVE_DRIVER(xtrmhunt, NULL, "2004", "Extreme Hunting", "Sammy", 2, GBF_MISC, AwaveLightgunInputInfo, xtrmhuntInit, xtrmhuntRomInfo, xtrmhuntRomName)
-
+struct BurnDriver BurnDrvAwavextrmhunt = {
+    "xtrmhunt", NULL, "awbios", NULL, "2004", "Extreme Hunting" "\0", NULL, "Sammy", "Atomiswave",
+    NULL, NULL, NULL, NULL, BDF_GAME_WORKING, 2, HARDWARE_MISC_POST90S, GBF_MISC, 0,
+    NULL, xtrmhuntRomInfo, xtrmhuntRomName, NULL, NULL, NULL, NULL, AwaveLightgunInputInfo, NULL,
+    xtrmhuntInit, AwaveExitCommon, AwaveFrameCommon, AwaveDrawCommon, AwaveScanCommon, &AwaveRecalc,
+    0x1000000, 640, 480, 4, 3
+};
 // Extreme Hunting 2
 static struct BurnRomInfo xtrmhnt2RomDesc[] = {
     AWAVE_BIOS_ROMS,
@@ -359,8 +391,13 @@ static NaomiZipEntry xtrmhnt2ZipEntries[] = {
     ZIPENTRY("610-0752.u3", 3), ZIPENTRY("610-0752.u1", 4), ZIPENTRY("610-0752.u4", 5), ZIPENTRY("610-0752.u2", 6), ZIPENTRY("610-0752.u15", 7), ZIPENTRY("610-0752.u17", 8), ZIPENTRY("610-0752.u14", 9), ZIPENTRY("610-0752.u16", 10), ZIPEND
 };
 AWAVE_INIT_FUNC(xtrmhnt2, xtrmhnt2ZipEntries, NAOMI_GAME_INPUT_LIGHTGUN)
-AWAVE_DRIVER(xtrmhnt2, NULL, "2006", "Extreme Hunting 2", "Sega", 2, GBF_MISC, AwaveLightgunInputInfo, xtrmhnt2Init, xtrmhnt2RomInfo, xtrmhnt2RomName)
-
+struct BurnDriver BurnDrvAwavextrmhnt2 = {
+    "xtrmhnt2", NULL, "awbios", NULL, "2006", "Extreme Hunting 2" "\0", NULL, "Sega", "Atomiswave",
+    NULL, NULL, NULL, NULL, BDF_GAME_WORKING, 2, HARDWARE_MISC_POST90S, GBF_MISC, 0,
+    NULL, xtrmhnt2RomInfo, xtrmhnt2RomName, NULL, NULL, NULL, NULL, AwaveLightgunInputInfo, NULL,
+    xtrmhnt2Init, AwaveExitCommon, AwaveFrameCommon, AwaveDrawCommon, AwaveScanCommon, &AwaveRecalc,
+    0x1000000, 640, 480, 4, 3
+};
 // Animal Basket / Hustle Tamaire Kyousou (24 Jan 2005)
 static struct BurnRomInfo anmlbsktRomDesc[] = {
     AWAVE_BIOS_ROMS,
@@ -375,8 +412,13 @@ static NaomiZipEntry anmlbsktZipEntries[] = {
     ZIPENTRY("vm2001f01.u3", 3), ZIPENTRY("vm2001f01.u4", 4), ZIPENTRY("vm2001f01.u2", 5), ZIPENTRY("vm2001f01.u15", 6), ZIPEND
 };
 AWAVE_INIT_FUNC(anmlbskt, anmlbsktZipEntries, NAOMI_GAME_INPUT_DIGITAL)
-AWAVE_DRIVER(anmlbskt, NULL, "2005", "Animal Basket / Hustle Tamaire Kyousou (24 Jan 2005)", "MOSS / Sammy", 2, GBF_MISC, Awave2PInputInfo, anmlbsktInit, anmlbsktRomInfo, anmlbsktRomName)
-
+struct BurnDriver BurnDrvAwaveanmlbskt = {
+    "anmlbskt", NULL, "awbios", NULL, "2005", "Animal Basket / Hustle Tamaire Kyousou (24 Jan 2005)" "\0", NULL, "MOSS / Sammy", "Atomiswave",
+    NULL, NULL, NULL, NULL, BDF_GAME_WORKING, 2, HARDWARE_MISC_POST90S, GBF_MISC, 0,
+    NULL, anmlbsktRomInfo, anmlbsktRomName, NULL, NULL, NULL, NULL, Awave2PInputInfo, NULL,
+    anmlbsktInit, AwaveExitCommon, AwaveFrameCommon, AwaveDrawCommon, AwaveScanCommon, &AwaveRecalc,
+    0x1000000, 640, 480, 4, 3
+};
 // Block Pong-Pong
 static struct BurnRomInfo blokpongRomDesc[] = {
     AWAVE_BIOS_ROMS,
@@ -390,8 +432,13 @@ static NaomiZipEntry blokpongZipEntries[] = {
     ZIPENTRY("u3", 3), ZIPENTRY("u1", 4), ZIPENTRY("u4", 5), ZIPEND
 };
 AWAVE_INIT_FUNC(blokpong, blokpongZipEntries, NAOMI_GAME_INPUT_BLOCKPONG)
-AWAVE_DRIVER(blokpong, NULL, "2004", "Block Pong-Pong", "MOSS / Sammy", 2, GBF_MISC, Awave2PInputInfo, blokpongInit, blokpongRomInfo, blokpongRomName)
-
+struct BurnDriver BurnDrvAwaveblokpong = {
+    "blokpong", NULL, "awbios", NULL, "2004", "Block Pong-Pong" "\0", NULL, "MOSS / Sammy", "Atomiswave",
+    NULL, NULL, NULL, NULL, BDF_GAME_WORKING, 2, HARDWARE_MISC_POST90S, GBF_MISC, 0,
+    NULL, blokpongRomInfo, blokpongRomName, NULL, NULL, NULL, NULL, Awave2PInputInfo, NULL,
+    blokpongInit, AwaveExitCommon, AwaveFrameCommon, AwaveDrawCommon, AwaveScanCommon, &AwaveRecalc,
+    0x1000000, 640, 480, 4, 3
+};
 // Knights of Valour - The Seven Spirits
 static struct BurnRomInfo kov7sprtRomDesc[] = {
     AWAVE_BIOS_ROMS,
@@ -410,8 +457,13 @@ static NaomiZipEntry kov7sprtZipEntries[] = {
     ZIPENTRY("ax1301p01.ic18", 3), ZIPENTRY("ax1301m01.ic11", 4), ZIPENTRY("ax1301m02.ic12", 5), ZIPENTRY("ax1301m03.ic13", 6), ZIPENTRY("ax1301m04.ic14", 7), ZIPENTRY("ax1301m05.ic15", 8), ZIPENTRY("ax1301m06.ic16", 9), ZIPENTRY("ax1301m07.ic17", 10), ZIPEND
 };
 AWAVE_INIT_FUNC(kov7sprt, kov7sprtZipEntries, NAOMI_GAME_INPUT_DIGITAL)
-AWAVE_DRIVER(kov7sprt, NULL, "2003", "Knights of Valour - The Seven Spirits", "IGS / Sammy", 2, GBF_MISC, Awave2PInputInfo, kov7sprtInit, kov7sprtRomInfo, kov7sprtRomName)
-
+struct BurnDriver BurnDrvAwavekov7sprt = {
+    "kov7sprt", NULL, "awbios", NULL, "2003", "Knights of Valour - The Seven Spirits" "\0", NULL, "IGS / Sammy", "Atomiswave",
+    NULL, NULL, NULL, NULL, BDF_GAME_WORKING, 2, HARDWARE_MISC_POST90S, GBF_MISC, 0,
+    NULL, kov7sprtRomInfo, kov7sprtRomName, NULL, NULL, NULL, NULL, Awave2PInputInfo, NULL,
+    kov7sprtInit, AwaveExitCommon, AwaveFrameCommon, AwaveDrawCommon, AwaveScanCommon, &AwaveRecalc,
+    0x1000000, 640, 480, 4, 3
+};
 // Guilty Gear Isuka
 static struct BurnRomInfo ggisukaRomDesc[] = {
     AWAVE_BIOS_ROMS,
@@ -431,4 +483,10 @@ static NaomiZipEntry ggisukaZipEntries[] = {
     ZIPENTRY("ax1201p01.ic18", 3), ZIPENTRY("ax1201m01.ic10", 4), ZIPENTRY("ax1202m01.ic11", 5), ZIPENTRY("ax1203m01.ic12", 6), ZIPENTRY("ax1204m01.ic13", 7), ZIPENTRY("ax1205m01.ic14", 8), ZIPENTRY("ax1206m01.ic15", 9), ZIPENTRY("ax1207m01.ic16", 10), ZIPENTRY("ax1208m01.ic17", 11), ZIPEND
 };
 AWAVE_INIT_FUNC(ggisuka, ggisukaZipEntries, NAOMI_GAME_INPUT_DIGITAL)
-AWAVE_DRIVER(ggisuka, NULL, "2004", "Guilty Gear Isuka", "Arc System Works / Sammy", 4, GBF_MISC, Awave4PInputInfo, ggisukaInit, ggisukaRomInfo, ggisukaRomName)
+struct BurnDriver BurnDrvAwaveggisuka = {
+    "ggisuka", NULL, "awbios", NULL, "2004", "Guilty Gear Isuka" "\0", NULL, "Arc System Works / Sammy", "Atomiswave",
+    NULL, NULL, NULL, NULL, BDF_GAME_WORKING, 4, HARDWARE_MISC_POST90S, GBF_MISC, 0,
+    NULL, ggisukaRomInfo, ggisukaRomName, NULL, NULL, NULL, NULL, Awave4PInputInfo, NULL,
+    ggisukaInit, AwaveExitCommon, AwaveFrameCommon, AwaveDrawCommon, AwaveScanCommon, &AwaveRecalc,
+    0x1000000, 640, 480, 4, 3
+};
