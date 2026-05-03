@@ -610,7 +610,7 @@ static INT32 NaomiBuildDirectContentArchive()
 		NaomiDirectArchiveEntries.push_back(entry);
 	}
 
-	bprintf(0, _T("AWAVE profile: direct FBNeo ROM archive enabled (%d files, no temp zip copy)\n"), (INT32)NaomiDirectArchiveEntries.size());
+	bprintf(0, _T("AWAVE profile: direct FBNeo ROM archive enabled (%d files, retained until unload)\n"), (INT32)NaomiDirectArchiveEntries.size());
 	return 0;
 }
 
@@ -658,7 +658,10 @@ static void NaomiClearRuntimeState()
 {
 	NaomiVideo.clear();
 	NaomiHardwareVideoScratch.clear();
-	NaomiDirectArchiveClear();
+	// Do not clear NaomiDirectArchiveEntries here. This routine is also used
+	// by soft reset/state reset paths while Flycast may still have cartridge
+	// mappings that lazily reference the in-memory ROM archive. Clear the
+	// direct archive only after flycast_retro_unload_game() in NaomiCoreExit().
 	{
 		std::lock_guard<std::mutex> lock(NaomiAudioMutex);
 		NaomiAudio.clear();
@@ -757,6 +760,15 @@ static bool NaomiLoadPboFns()
 		&& NaomiGlPboFns.deleteBuffers != NULL;
 }
 
+static bool NaomiUseAsyncReadbackPbo()
+{
+	const char* env = getenv("FBNEO_AWAVE_USE_PBO");
+	if (env != NULL && env[0] != 0) {
+		return !(env[0] == '0' || !strcmp(env, "off") || !strcmp(env, "disabled") || !strcmp(env, "false"));
+	}
+	return true;
+}
+
 static void NaomiResetReadbackPboState()
 {
 	for (INT32 i = 0; i < NaomiReadbackPboCount; i++) {
@@ -784,6 +796,11 @@ static void NaomiDestroyReadbackPbos()
 
 static bool NaomiEnsureReadbackPbos(unsigned width, unsigned height)
 {
+	if (!NaomiUseAsyncReadbackPbo()) {
+		NaomiDestroyReadbackPbos();
+		return false;
+	}
+
 	if (width == 0 || height == 0 || !NaomiLoadPboFns()) {
 		return false;
 	}
@@ -1231,8 +1248,11 @@ static bool NaomiIsHeavyRendererGame()
 
 	// These Atomiswave/NAOMI titles most clearly expose the wrapper's slow
 	// visual defaults. Use a Flycast-like render preset unless the user opts out.
-	return !strcmp(NaomiGame->driverName, "samsptk") ||
+	return NaomiRuntimePlatform() == AWAVE_PLATFORM_ATOMISWAVE ||
+		!strcmp(NaomiGame->driverName, "samsptk") ||
 		!strcmp(NaomiGame->driverName, "kov7sprt") ||
+		!strcmp(NaomiGame->driverName, "dolphin") ||
+		!strcmp(NaomiGame->driverName, "fotns") ||
 		!strcmp(NaomiGame->driverName, "ngbc");
 }
 
@@ -1321,7 +1341,11 @@ static const char* NaomiGetAlphaSortingValue()
 	if (NaomiUseSpeedRenderPreset()) {
 		return "per-strip (fast, least accurate)";
 	}
-	return (NaomiUseFlycastRenderPreset() || NaomiUseBalancedRenderPreset()) ? "per-triangle (normal)" : "per-pixel (accurate)";
+	// v12 visual-safe default: black square artifacts on Atomiswave are usually
+	// alpha/depth ordering errors. Keep balanced preset for pacing, but do not
+	// relax alpha sorting unless the user explicitly requests flycast/speed or
+	// FBNEO_AWAVE_ALPHA_SORTING=triangle/strip.
+	return NaomiUseFlycastRenderPreset() ? "per-triangle (normal)" : "per-pixel (accurate)";
 }
 
 static const char* NaomiGetRttbValue()
@@ -1340,6 +1364,40 @@ static const char* NaomiGetThreadedRenderingValue()
 		return NaomiEnvTruthy(env) ? "enabled" : "disabled";
 	}
 	return NaomiUseFlycastRenderPreset() ? "enabled" : "disabled";
+}
+
+
+static const char* NaomiGetEnvOption(const char* name)
+{
+	const char* env = getenv(name);
+	return (env != NULL && env[0] != 0) ? env : NULL;
+}
+
+static const char* NaomiGetDspValue()
+{
+	const char* env = NaomiGetEnvOption("FBNEO_AWAVE_DSP");
+	if (env != NULL) {
+		if (!strcmp(env, "1") || !strcmp(env, "on") || !strcmp(env, "enabled") || !strcmp(env, "true")) return "enabled";
+		if (!strcmp(env, "0") || !strcmp(env, "off") || !strcmp(env, "disabled") || !strcmp(env, "false")) return "disabled";
+	}
+	if (NaomiUseSpeedHacks()) {
+		return "disabled";
+	}
+	// Atomiswave/NAOMI titles do not need the Dreamcast DSP path for most sound
+	// output, and enabling it costs measurable CPU time in this embedded core.
+	// Dreamcast keeps DSP enabled by default for compatibility. Use
+	// FBNEO_AWAVE_DSP=on to force it for arcade titles.
+	return NaomiRuntimePlatform() == AWAVE_PLATFORM_DREAMCAST ? "enabled" : "disabled";
+}
+
+static const char* NaomiGetWinCeValue()
+{
+	const char* env = NaomiGetEnvOption("FBNEO_AWAVE_FORCE_WINCE");
+	if (env != NULL) {
+		if (!strcmp(env, "1") || !strcmp(env, "on") || !strcmp(env, "enabled") || !strcmp(env, "true")) return "enabled";
+		if (!strcmp(env, "0") || !strcmp(env, "off") || !strcmp(env, "disabled") || !strcmp(env, "false")) return "disabled";
+	}
+	return "disabled";
 }
 
 static const char* NaomiGetOptionValue(const char* key)
@@ -1385,7 +1443,7 @@ static const char* NaomiGetOptionValue(const char* key)
 	if (!strcmp(key, "flycast_cable_type")) return "TV (Composite)";
 
 	if (!strcmp(key, "reicast_broadcast")) return "Default";
-	if (!strcmp(key, "flycast_broadcast")) return "Default";
+	if (!strcmp(key, "flycast_broadcast") || !strcmp(key, "flycast_brodcast")) return "Default";
 
 	if (!strcmp(key, "reicast_framerate")) return "fullspeed";
 	if (!strcmp(key, "flycast_framerate")) return "fullspeed";
@@ -1400,8 +1458,8 @@ static const char* NaomiGetOptionValue(const char* key)
 		return NaomiUseSpeedHacks() ? "disabled" : "auto";
 	}
 
-	if (!strcmp(key, "reicast_force_wince")) return "disabled";
-	if (!strcmp(key, "flycast_force_wince")) return "disabled";
+	if (!strcmp(key, "reicast_force_wince")) return NaomiGetWinCeValue();
+	if (!strcmp(key, "flycast_force_wince") || !strcmp(key, "flycast_force_windows_ce_mode") || !strcmp(key, "flycast_force_windows_ce_modee")) return NaomiGetWinCeValue();
 
 	if (!strcmp(key, "reicast_anisotropic_filtering")) return "disabled";
 	if (!strcmp(key, "flycast_anisotropic_filtering")) return "disabled";
@@ -1438,7 +1496,7 @@ static const char* NaomiGetOptionValue(const char* key)
 	if (!strcmp(key, "flycast_synchronous_rendering")) return "disabled";
 
 	if (!strcmp(key, "reicast_enable_dsp") || !strcmp(key, "flycast_enable_dsp")) {
-		return NaomiUseSpeedHacks() ? "disabled" : NULL;
+		return NaomiGetDspValue();
 	}
 	if (!strcmp(key, "reicast_mipmapping") || !strcmp(key, "flycast_mipmapping")) {
 		return NaomiUseSpeedHacks() ? "disabled" : NULL;
@@ -1645,6 +1703,20 @@ static void NaomiDeactivateHwRender()
 	NaomiHwRenderReady = false;
 }
 
+static void NaomiDestroyGlResourcesWithCurrentContext()
+{
+	// GL objects must be deleted while the same fallback/frontend context is
+	// current. v11 destroyed Flycast's hw context first and then tried to delete
+	// PBO/FBO/texture objects, which can leak resources across repeated loads.
+	if (OGLGetContext() != NULL) {
+		OGLMakeCurrentContext();
+		NaomiDestroyFrontendFramebuffer();
+		OGLDoneCurrentContext();
+	} else {
+		NaomiDestroyFrontendFramebuffer();
+	}
+}
+
 static INT32 NaomiLoadRetroGame()
 {
 	struct retro_game_info gameInfo;
@@ -1652,6 +1724,10 @@ static INT32 NaomiLoadRetroGame()
 	const bool useHwContext = NaomiHwRenderRequested || NaomiHwRenderReady;
 
 	memset(&gameInfo, 0, sizeof(gameInfo));
+	if (NaomiRuntimePlatform() == AWAVE_PLATFORM_DREAMCAST && !NaomiUseExternalContent()) {
+		bprintf(0, _T("AWAVE load ERROR: Dreamcast requires external .gdi/.chd/.cue/.cdi/.m3u content; set FBNEO_AWAVE_DREAMCAST_PATH or config->contentPath.\n"));
+		return 1;
+	}
 	gameInfo.path = NaomiUseExternalContent() ? NaomiExternalContentPath() : NaomiTempZipPath;
 	bprintf(0, _T("AWAVE load: platform=%S path=%S\n"), NaomiRuntimePlatformName(), gameInfo.path ? gameInfo.path : "<null>");
 
@@ -1672,12 +1748,13 @@ static INT32 NaomiLoadRetroGame()
 		OGLDoneCurrentContext();
 	}
 	NaomiRetroGameLoaded = true;
-	// The direct ROM archive is only needed while flycast_retro_load_game()
-	// reads the NAOMI/Atomiswave blobs. Clear it immediately so large games
-	// such as samsptk do not keep a second full ROM copy in memory.
-	if (!NaomiUseExternalContent()) {
-		NaomiDirectArchiveClear();
-	}
+	// Keep the direct ROM archive alive for the whole emulation session.
+	// Flycast/NAOMI cartridge code may still touch ROM regions lazily after
+	// flycast_retro_load_game() returns. Clearing the in-memory archive here
+	// can turn later reads into null/unmapped accesses; zzBurnDebug.html showed
+	// repeated [GPF] Unhandled access to 0000000000000000 after re-entering
+	// kov7sprt with direct_rom enabled. The archive is released by
+	// NaomiClearRuntimeState()/NaomiCoreExit() instead.
 
 	if (NaomiHwRenderRequested && !NaomiActivateHwRender()) {
 		bprintf(0, _T("naomi: failed to activate hw render context\n"));
@@ -1722,8 +1799,10 @@ static void NaomiShutdownRetroCore()
 		NaomiRetroGameLoaded = false;
 	}
 
+	// Destroy wrapper-owned GL resources before destroying Flycast's HW render
+	// context and before the fallback context is released.
+	NaomiDestroyGlResourcesWithCurrentContext();
 	NaomiDeactivateHwRender();
-	NaomiDestroyFrontendFramebuffer();
 
 	if (NaomiRetroInitialized) {
 		flycast_retro_audio_deinit();
@@ -2453,6 +2532,7 @@ INT32 NaomiCoreInit(const NaomiGameConfig* config)
 INT32 NaomiCoreExit()
 {
 	NaomiShutdownRetroCore();
+	NaomiDirectArchiveClear();
 
 	NaomiLoaded = false;
 	NaomiGame = NULL;
