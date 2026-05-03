@@ -1,0 +1,15 @@
+CREATE C:/msys64/home/24946/fbneowrok/yizhi/fbneo/vendor/flycast/build_fbneo_static/libflycast_fbneo_all.a
+ADDLIB C:/msys64/home/24946/fbneowrok/yizhi/fbneo/vendor/flycast/build_fbneo_static/libflycast-resources.a
+ADDLIB C:/msys64/home/24946/fbneowrok/yizhi/fbneo/vendor/flycast/build_fbneo_static/libflycast_libretro.a
+ADDLIB C:/msys64/home/24946/fbneowrok/yizhi/fbneo/vendor/flycast/build_fbneo_static/core/deps/libchdr/deps/lzma-24.05/liblzma.a
+ADDLIB C:/msys64/home/24946/fbneowrok/yizhi/fbneo/vendor/flycast/build_fbneo_static/core/deps/libchdr/deps/zlib-1.3.1/libzlibstatic.a
+ADDLIB C:/msys64/home/24946/fbneowrok/yizhi/fbneo/vendor/flycast/build_fbneo_static/core/deps/libchdr/deps/zstd-1.5.6/build/cmake/lib/libzstd.a
+ADDLIB C:/msys64/home/24946/fbneowrok/yizhi/fbneo/vendor/flycast/build_fbneo_static/core/deps/libchdr/libchdr-static.a
+ADDLIB C:/msys64/home/24946/fbneowrok/yizhi/fbneo/vendor/flycast/build_fbneo_static/core/deps/libelf/libelf.a
+ADDLIB C:/msys64/home/24946/fbneowrok/yizhi/fbneo/vendor/flycast/build_fbneo_static/core/deps/libzip/lib/libzip.a
+ADDLIB C:/msys64/home/24946/fbneowrok/yizhi/fbneo/vendor/flycast/build_fbneo_static/core/deps/miniupnpc/libminiupnpc.a
+ADDLIB C:/msys64/home/24946/fbneowrok/yizhi/fbneo/vendor/flycast/build_fbneo_static/core/deps/nowide/libnowide.a
+ADDLIB C:/msys64/home/24946/fbneowrok/yizhi/fbneo/vendor/flycast/build_fbneo_static/core/deps/tinygettext/libtinygettext.a
+ADDLIB C:/msys64/home/24946/fbneowrok/yizhi/fbneo/vendor/flycast/build_fbneo_static/core/deps/xxHash/cmake_unofficial/libxxhash.a
+SAVE
+END

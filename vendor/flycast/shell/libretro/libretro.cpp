@@ -14,6 +14,8 @@
     You should have received a copy of the GNU General Public License
     along with Flycast.  If not, see <https://www.gnu.org/licenses/>.
  */
+#include "fbneo_libretro_prefix.h"
+
 #include <cstdio>
 #include <cstdarg>
 #include <math.h>

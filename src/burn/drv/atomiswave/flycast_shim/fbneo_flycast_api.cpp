@@ -15,6 +15,20 @@
 #else
 #include <sys/stat.h>
 #include <sys/types.h>
+
+/* FBNeo/Flycast MinGW compatibility: Flycast built by some MinGW CRTs references
+ * stat64i32 while TDM-GCC exposes _stat64i32. Keep this in a FBNeo object so the
+ * final executable can satisfy the Flycast static library reference.
+ */
+#if defined(__MINGW32__) && !defined(FBNEO_FLYCAST_MINGW_STAT64I32_COMPAT)
+#define FBNEO_FLYCAST_MINGW_STAT64I32_COMPAT 1
+#include <sys/stat.h>
+extern "C" int stat64i32(const char* path, struct _stat64i32* st)
+{
+    return _stat64i32(path, st);
+}
+#endif
+
 #define FBFC_MKDIR(path) mkdir(path, 0755)
 #endif
 

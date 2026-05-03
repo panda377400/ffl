@@ -1,0 +1,2 @@
+C:\TDM-GCC-64\bin\ar.exe qc libelf.a CMakeFiles/elf.dir/src/elf.c.obj CMakeFiles/elf.dir/src/elf32.c.obj CMakeFiles/elf.dir/src/elf64.c.obj
+C:\TDM-GCC-64\bin\ranlib.exe libelf.a

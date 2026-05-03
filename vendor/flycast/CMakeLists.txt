@@ -87,6 +87,7 @@ option(USE_VULKAN "Build with Vulkan support" ON)
 option(USE_DX9 "Build with Direct3D 9 support" ON)
 option(USE_DX11 "Build with Direct3D 11 support" ON)
 option(LIBRETRO "Build libretro core" OFF)
+option(FBNEO_STATIC_LIBRETRO "Build Flycast libretro as a static library for FBNeo" OFF)
 option(USE_OPENGL "Use OpenGL API" ON)
 option(USE_VIDEOCORE "RPI: use the legacy Broadcom GLES libraries" OFF)
 option(USE_ALSA "Build with ALSA support" ON)
@@ -186,7 +187,11 @@ if(NINTENDO_SWITCH)
 		IMGUI_DISABLE_DEFAULT_SHELL_FUNCTIONS)
 
 elseif(LIBRETRO)
-	add_library(${PROJECT_NAME} SHARED core/emulator.cpp)
+  if(FBNEO_STATIC_LIBRETRO)
+    add_library(${PROJECT_NAME} STATIC core/emulator.cpp)
+  else()
+    add_library(${PROJECT_NAME} SHARED core/emulator.cpp)
+  endif()
 	if(APPLE)
 		if(NOT IOS)
 			set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,-undefined,error")
@@ -204,6 +209,30 @@ elseif(LIBRETRO)
 	set(CMAKE_SHARED_LIBRARY_PREFIX "")
 	set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 	target_compile_definitions(${PROJECT_NAME} PRIVATE LIBRETRO)
+if(FBNEO_STATIC_LIBRETRO)
+  target_compile_definitions(${PROJECT_NAME} PRIVATE
+    retro_set_environment=flycast_retro_set_environment
+    retro_set_video_refresh=flycast_retro_set_video_refresh
+    retro_set_audio_sample=flycast_retro_set_audio_sample
+    retro_set_audio_sample_batch=flycast_retro_set_audio_sample_batch
+    retro_set_input_poll=flycast_retro_set_input_poll
+    retro_set_input_state=flycast_retro_set_input_state
+    retro_init=flycast_retro_init
+    retro_deinit=flycast_retro_deinit
+    retro_api_version=flycast_retro_api_version
+    retro_get_system_info=flycast_retro_get_system_info
+    retro_get_system_av_info=flycast_retro_get_system_av_info
+    retro_set_controller_port_device=flycast_retro_set_controller_port_device
+    retro_reset=flycast_retro_reset
+    retro_run=flycast_retro_run
+    retro_serialize_size=flycast_retro_serialize_size
+    retro_serialize=flycast_retro_serialize
+    retro_unserialize=flycast_retro_unserialize
+    retro_load_game=flycast_retro_load_game
+    retro_unload_game=flycast_retro_unload_game
+  )
+endif()
+
 	if(APPLE)
 		find_library(FOUNDATION Foundation)
 		target_link_libraries(${PROJECT_NAME} PRIVATE ${FOUNDATION})

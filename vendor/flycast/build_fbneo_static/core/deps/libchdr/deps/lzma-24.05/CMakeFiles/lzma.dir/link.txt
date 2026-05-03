@@ -1,0 +1,2 @@
+C:\TDM-GCC-64\bin\ar.exe qc liblzma.a CMakeFiles/lzma.dir/src/Alloc.c.obj CMakeFiles/lzma.dir/src/Bra.c.obj CMakeFiles/lzma.dir/src/Bra86.c.obj CMakeFiles/lzma.dir/src/BraIA64.c.obj CMakeFiles/lzma.dir/src/CpuArch.c.obj CMakeFiles/lzma.dir/src/Delta.c.obj CMakeFiles/lzma.dir/src/LzFind.c.obj CMakeFiles/lzma.dir/src/Lzma86Dec.c.obj CMakeFiles/lzma.dir/src/LzmaDec.c.obj CMakeFiles/lzma.dir/src/LzmaEnc.c.obj CMakeFiles/lzma.dir/src/Sort.c.obj
+C:\TDM-GCC-64\bin\ranlib.exe liblzma.a

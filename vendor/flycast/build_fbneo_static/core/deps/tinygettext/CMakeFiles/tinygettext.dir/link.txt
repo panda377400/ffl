@@ -1,0 +1,2 @@
+C:\TDM-GCC-64\bin\ar.exe qc libtinygettext.a CMakeFiles/tinygettext.dir/src/dictionary.cpp.obj CMakeFiles/tinygettext.dir/src/dictionary_manager.cpp.obj CMakeFiles/tinygettext.dir/src/iconv.cpp.obj CMakeFiles/tinygettext.dir/src/language.cpp.obj CMakeFiles/tinygettext.dir/src/log.cpp.obj CMakeFiles/tinygettext.dir/src/plural_forms.cpp.obj CMakeFiles/tinygettext.dir/src/po_parser.cpp.obj CMakeFiles/tinygettext.dir/src/tinygettext.cpp.obj CMakeFiles/tinygettext.dir/src/unix_file_system.cpp.obj
+C:\TDM-GCC-64\bin\ranlib.exe libtinygettext.a

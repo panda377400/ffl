@@ -1,0 +1,1 @@
+ "../libchdr-static.a" "../deps/lzma-24.05/liblzma.a" "../deps/zlib-1.3.1/libzlibstatic.a" "../deps/zstd-1.5.6/build/cmake/lib/libzstd.a" -lkernel32 -luser32 -lgdi32 -lwinspool -lshell32 -lole32 -loleaut32 -luuid -lcomdlg32 -ladvapi32 

@@ -1,0 +1,430 @@
+        #include <cmrc/cmrc.hpp>
+#include <map>
+#include <utility>
+
+namespace cmrc {
+namespace flycast {
+
+namespace res_chars {
+// These are the files which are available in this resource library
+// Pointers to resources/flash/alienfnt.nvmem.zip
+extern const char* const f_64a9_flash_alienfnt_nvmem_zip_begin;
+extern const char* const f_64a9_flash_alienfnt_nvmem_zip_end;
+// Pointers to resources/flash/gunsur2.nvmem.zip
+extern const char* const f_7a82_flash_gunsur2_nvmem_zip_begin;
+extern const char* const f_7a82_flash_gunsur2_nvmem_zip_end;
+// Pointers to resources/flash/mazan.nvmem.zip
+extern const char* const f_065f_flash_mazan_nvmem_zip_begin;
+extern const char* const f_065f_flash_mazan_nvmem_zip_end;
+// Pointers to resources/flash/otrigger.nvmem.zip
+extern const char* const f_3470_flash_otrigger_nvmem_zip_begin;
+extern const char* const f_3470_flash_otrigger_nvmem_zip_end;
+// Pointers to resources/flash/wldkicks.nvmem.zip
+extern const char* const f_39e4_flash_wldkicks_nvmem_zip_begin;
+extern const char* const f_39e4_flash_wldkicks_nvmem_zip_end;
+// Pointers to resources/flash/wldkicksj.nvmem.zip
+extern const char* const f_a91f_flash_wldkicksj_nvmem_zip_begin;
+extern const char* const f_a91f_flash_wldkicksj_nvmem_zip_end;
+// Pointers to resources/flash/wldkicksu.nvmem.zip
+extern const char* const f_ab52_flash_wldkicksu_nvmem_zip_begin;
+extern const char* const f_ab52_flash_wldkicksu_nvmem_zip_end;
+// Pointers to resources/flash/f355.nvmem.zip
+extern const char* const f_cf18_flash_f355_nvmem_zip_begin;
+extern const char* const f_cf18_flash_f355_nvmem_zip_end;
+// Pointers to resources/flash/f355twin.nvmem.zip
+extern const char* const f_2585_flash_f355twin_nvmem_zip_begin;
+extern const char* const f_2585_flash_f355twin_nvmem_zip_end;
+// Pointers to resources/flash/f355twn2.nvmem.zip
+extern const char* const f_e20f_flash_f355twn2_nvmem_zip_begin;
+extern const char* const f_e20f_flash_f355twn2_nvmem_zip_end;
+// Pointers to resources/flash/dirtypig.nvmem.zip
+extern const char* const f_3451_flash_dirtypig_nvmem_zip_begin;
+extern const char* const f_3451_flash_dirtypig_nvmem_zip_end;
+// Pointers to resources/flash/dirtypig.nvmem2.zip
+extern const char* const f_c994_flash_dirtypig_nvmem2_zip_begin;
+extern const char* const f_c994_flash_dirtypig_nvmem2_zip_end;
+// Pointers to resources/flash/vf4.nvmem.zip
+extern const char* const f_aa77_flash_vf4_nvmem_zip_begin;
+extern const char* const f_aa77_flash_vf4_nvmem_zip_end;
+// Pointers to resources/flash/vf4evob.nvmem.zip
+extern const char* const f_fa91_flash_vf4evob_nvmem_zip_begin;
+extern const char* const f_fa91_flash_vf4evob_nvmem_zip_end;
+// Pointers to resources/flash/vf4tuned.nvmem.zip
+extern const char* const f_bbdd_flash_vf4tuned_nvmem_zip_begin;
+extern const char* const f_bbdd_flash_vf4tuned_nvmem_zip_end;
+// Pointers to resources/flash/magicpop.nvmem.zip
+extern const char* const f_7186_flash_magicpop_nvmem_zip_begin;
+extern const char* const f_7186_flash_magicpop_nvmem_zip_end;
+// Pointers to resources/flash/ochaken.nvmem.zip
+extern const char* const f_cee4_flash_ochaken_nvmem_zip_begin;
+extern const char* const f_cee4_flash_ochaken_nvmem_zip_end;
+// Pointers to resources/flash/puyomedal.nvmem.zip
+extern const char* const f_0b8a_flash_puyomedal_nvmem_zip_begin;
+extern const char* const f_0b8a_flash_puyomedal_nvmem_zip_end;
+// Pointers to resources/flash/unomedal.nvmem.zip
+extern const char* const f_c44c_flash_unomedal_nvmem_zip_begin;
+extern const char* const f_c44c_flash_unomedal_nvmem_zip_end;
+// Pointers to resources/flash/westdrmg.nvmem.zip
+extern const char* const f_b7d3_flash_westdrmg_nvmem_zip_begin;
+extern const char* const f_b7d3_flash_westdrmg_nvmem_zip_end;
+// Pointers to resources/flash/smarinef.nvmem.zip
+extern const char* const f_69b4_flash_smarinef_nvmem_zip_begin;
+extern const char* const f_69b4_flash_smarinef_nvmem_zip_end;
+// Pointers to resources/picture/f355_print_template.png
+extern const char* const f_1289_picture_f355_print_template_png_begin;
+extern const char* const f_1289_picture_f355_print_template_png_end;
+// Pointers to fonts/printer_ascii8x16.bin.zip
+extern const char* const f_f4d5_fonts_printer_ascii8x16_bin_zip_begin;
+extern const char* const f_f4d5_fonts_printer_ascii8x16_bin_zip_end;
+// Pointers to fonts/printer_ascii12x24.bin.zip
+extern const char* const f_87b3_fonts_printer_ascii12x24_bin_zip_begin;
+extern const char* const f_87b3_fonts_printer_ascii12x24_bin_zip_end;
+// Pointers to fonts/printer_kanji16x16.bin.zip
+extern const char* const f_dc64_fonts_printer_kanji16x16_bin_zip_begin;
+extern const char* const f_dc64_fonts_printer_kanji16x16_bin_zip_end;
+// Pointers to fonts/printer_kanji24x24.bin.zip
+extern const char* const f_2788_fonts_printer_kanji24x24_bin_zip_begin;
+extern const char* const f_2788_fonts_printer_kanji24x24_bin_zip_end;
+// Pointers to fonts/biosfont.bin.zip
+extern const char* const f_d593_fonts_biosfont_bin_zip_begin;
+extern const char* const f_d593_fonts_biosfont_bin_zip_end;
+// Pointers to resources/i18n/fr.po
+extern const char* const f_3185_i18n_fr_po_begin;
+extern const char* const f_3185_i18n_fr_po_end;
+// Pointers to resources/i18n/hu.po
+extern const char* const f_d655_i18n_hu_po_begin;
+extern const char* const f_d655_i18n_hu_po_end;
+// Pointers to resources/i18n/ja.po
+extern const char* const f_b5e1_i18n_ja_po_begin;
+extern const char* const f_b5e1_i18n_ja_po_end;
+// Pointers to resources/i18n/pt_BR.po
+extern const char* const f_8c6a_i18n_pt_BR_po_begin;
+extern const char* const f_8c6a_i18n_pt_BR_po_end;
+// Pointers to resources/i18n/sv.po
+extern const char* const f_0483_i18n_sv_po_begin;
+extern const char* const f_0483_i18n_sv_po_end;
+// Pointers to resources/i18n/zh_CN.po
+extern const char* const f_e1d4_i18n_zh_CN_po_begin;
+extern const char* const f_e1d4_i18n_zh_CN_po_end;
+// Pointers to resources/i18n/zh_HK.po
+extern const char* const f_5c7d_i18n_zh_HK_po_begin;
+extern const char* const f_5c7d_i18n_zh_HK_po_end;
+// Pointers to resources/i18n/zh_TW.po
+extern const char* const f_fcd2_i18n_zh_TW_po_begin;
+extern const char* const f_fcd2_i18n_zh_TW_po_end;
+}
+
+namespace {
+
+const cmrc::detail::index_type&
+get_root_index() {
+    static cmrc::detail::directory root_directory_;
+    static cmrc::detail::file_or_directory root_directory_fod{root_directory_};
+    static cmrc::detail::index_type root_index;
+    root_index.emplace("", &root_directory_fod);
+    struct dir_inl {
+        class cmrc::detail::directory& directory;
+    };
+    dir_inl root_directory_dir{root_directory_};
+    (void)root_directory_dir;
+    static auto f_a394_flash_dir = root_directory_dir.directory.add_subdir("flash");
+    root_index.emplace("flash", &f_a394_flash_dir.index_entry);
+    static auto f_5456_picture_dir = root_directory_dir.directory.add_subdir("picture");
+    root_index.emplace("picture", &f_5456_picture_dir.index_entry);
+    static auto f_980d_fonts_dir = root_directory_dir.directory.add_subdir("fonts");
+    root_index.emplace("fonts", &f_980d_fonts_dir.index_entry);
+    static auto f_db85_i18n_dir = root_directory_dir.directory.add_subdir("i18n");
+    root_index.emplace("i18n", &f_db85_i18n_dir.index_entry);
+    root_index.emplace(
+        "flash/alienfnt.nvmem.zip",
+        f_a394_flash_dir.directory.add_file(
+            "alienfnt.nvmem.zip",
+            res_chars::f_64a9_flash_alienfnt_nvmem_zip_begin,
+            res_chars::f_64a9_flash_alienfnt_nvmem_zip_end
+        )
+    );
+    root_index.emplace(
+        "flash/gunsur2.nvmem.zip",
+        f_a394_flash_dir.directory.add_file(
+            "gunsur2.nvmem.zip",
+            res_chars::f_7a82_flash_gunsur2_nvmem_zip_begin,
+            res_chars::f_7a82_flash_gunsur2_nvmem_zip_end
+        )
+    );
+    root_index.emplace(
+        "flash/mazan.nvmem.zip",
+        f_a394_flash_dir.directory.add_file(
+            "mazan.nvmem.zip",
+            res_chars::f_065f_flash_mazan_nvmem_zip_begin,
+            res_chars::f_065f_flash_mazan_nvmem_zip_end
+        )
+    );
+    root_index.emplace(
+        "flash/otrigger.nvmem.zip",
+        f_a394_flash_dir.directory.add_file(
+            "otrigger.nvmem.zip",
+            res_chars::f_3470_flash_otrigger_nvmem_zip_begin,
+            res_chars::f_3470_flash_otrigger_nvmem_zip_end
+        )
+    );
+    root_index.emplace(
+        "flash/wldkicks.nvmem.zip",
+        f_a394_flash_dir.directory.add_file(
+            "wldkicks.nvmem.zip",
+            res_chars::f_39e4_flash_wldkicks_nvmem_zip_begin,
+            res_chars::f_39e4_flash_wldkicks_nvmem_zip_end
+        )
+    );
+    root_index.emplace(
+        "flash/wldkicksj.nvmem.zip",
+        f_a394_flash_dir.directory.add_file(
+            "wldkicksj.nvmem.zip",
+            res_chars::f_a91f_flash_wldkicksj_nvmem_zip_begin,
+            res_chars::f_a91f_flash_wldkicksj_nvmem_zip_end
+        )
+    );
+    root_index.emplace(
+        "flash/wldkicksu.nvmem.zip",
+        f_a394_flash_dir.directory.add_file(
+            "wldkicksu.nvmem.zip",
+            res_chars::f_ab52_flash_wldkicksu_nvmem_zip_begin,
+            res_chars::f_ab52_flash_wldkicksu_nvmem_zip_end
+        )
+    );
+    root_index.emplace(
+        "flash/f355.nvmem.zip",
+        f_a394_flash_dir.directory.add_file(
+            "f355.nvmem.zip",
+            res_chars::f_cf18_flash_f355_nvmem_zip_begin,
+            res_chars::f_cf18_flash_f355_nvmem_zip_end
+        )
+    );
+    root_index.emplace(
+        "flash/f355twin.nvmem.zip",
+        f_a394_flash_dir.directory.add_file(
+            "f355twin.nvmem.zip",
+            res_chars::f_2585_flash_f355twin_nvmem_zip_begin,
+            res_chars::f_2585_flash_f355twin_nvmem_zip_end
+        )
+    );
+    root_index.emplace(
+        "flash/f355twn2.nvmem.zip",
+        f_a394_flash_dir.directory.add_file(
+            "f355twn2.nvmem.zip",
+            res_chars::f_e20f_flash_f355twn2_nvmem_zip_begin,
+            res_chars::f_e20f_flash_f355twn2_nvmem_zip_end
+        )
+    );
+    root_index.emplace(
+        "flash/dirtypig.nvmem.zip",
+        f_a394_flash_dir.directory.add_file(
+            "dirtypig.nvmem.zip",
+            res_chars::f_3451_flash_dirtypig_nvmem_zip_begin,
+            res_chars::f_3451_flash_dirtypig_nvmem_zip_end
+        )
+    );
+    root_index.emplace(
+        "flash/dirtypig.nvmem2.zip",
+        f_a394_flash_dir.directory.add_file(
+            "dirtypig.nvmem2.zip",
+            res_chars::f_c994_flash_dirtypig_nvmem2_zip_begin,
+            res_chars::f_c994_flash_dirtypig_nvmem2_zip_end
+        )
+    );
+    root_index.emplace(
+        "flash/vf4.nvmem.zip",
+        f_a394_flash_dir.directory.add_file(
+            "vf4.nvmem.zip",
+            res_chars::f_aa77_flash_vf4_nvmem_zip_begin,
+            res_chars::f_aa77_flash_vf4_nvmem_zip_end
+        )
+    );
+    root_index.emplace(
+        "flash/vf4evob.nvmem.zip",
+        f_a394_flash_dir.directory.add_file(
+            "vf4evob.nvmem.zip",
+            res_chars::f_fa91_flash_vf4evob_nvmem_zip_begin,
+            res_chars::f_fa91_flash_vf4evob_nvmem_zip_end
+        )
+    );
+    root_index.emplace(
+        "flash/vf4tuned.nvmem.zip",
+        f_a394_flash_dir.directory.add_file(
+            "vf4tuned.nvmem.zip",
+            res_chars::f_bbdd_flash_vf4tuned_nvmem_zip_begin,
+            res_chars::f_bbdd_flash_vf4tuned_nvmem_zip_end
+        )
+    );
+    root_index.emplace(
+        "flash/magicpop.nvmem.zip",
+        f_a394_flash_dir.directory.add_file(
+            "magicpop.nvmem.zip",
+            res_chars::f_7186_flash_magicpop_nvmem_zip_begin,
+            res_chars::f_7186_flash_magicpop_nvmem_zip_end
+        )
+    );
+    root_index.emplace(
+        "flash/ochaken.nvmem.zip",
+        f_a394_flash_dir.directory.add_file(
+            "ochaken.nvmem.zip",
+            res_chars::f_cee4_flash_ochaken_nvmem_zip_begin,
+            res_chars::f_cee4_flash_ochaken_nvmem_zip_end
+        )
+    );
+    root_index.emplace(
+        "flash/puyomedal.nvmem.zip",
+        f_a394_flash_dir.directory.add_file(
+            "puyomedal.nvmem.zip",
+            res_chars::f_0b8a_flash_puyomedal_nvmem_zip_begin,
+            res_chars::f_0b8a_flash_puyomedal_nvmem_zip_end
+        )
+    );
+    root_index.emplace(
+        "flash/unomedal.nvmem.zip",
+        f_a394_flash_dir.directory.add_file(
+            "unomedal.nvmem.zip",
+            res_chars::f_c44c_flash_unomedal_nvmem_zip_begin,
+            res_chars::f_c44c_flash_unomedal_nvmem_zip_end
+        )
+    );
+    root_index.emplace(
+        "flash/westdrmg.nvmem.zip",
+        f_a394_flash_dir.directory.add_file(
+            "westdrmg.nvmem.zip",
+            res_chars::f_b7d3_flash_westdrmg_nvmem_zip_begin,
+            res_chars::f_b7d3_flash_westdrmg_nvmem_zip_end
+        )
+    );
+    root_index.emplace(
+        "flash/smarinef.nvmem.zip",
+        f_a394_flash_dir.directory.add_file(
+            "smarinef.nvmem.zip",
+            res_chars::f_69b4_flash_smarinef_nvmem_zip_begin,
+            res_chars::f_69b4_flash_smarinef_nvmem_zip_end
+        )
+    );
+    root_index.emplace(
+        "picture/f355_print_template.png",
+        f_5456_picture_dir.directory.add_file(
+            "f355_print_template.png",
+            res_chars::f_1289_picture_f355_print_template_png_begin,
+            res_chars::f_1289_picture_f355_print_template_png_end
+        )
+    );
+    root_index.emplace(
+        "fonts/printer_ascii8x16.bin.zip",
+        f_980d_fonts_dir.directory.add_file(
+            "printer_ascii8x16.bin.zip",
+            res_chars::f_f4d5_fonts_printer_ascii8x16_bin_zip_begin,
+            res_chars::f_f4d5_fonts_printer_ascii8x16_bin_zip_end
+        )
+    );
+    root_index.emplace(
+        "fonts/printer_ascii12x24.bin.zip",
+        f_980d_fonts_dir.directory.add_file(
+            "printer_ascii12x24.bin.zip",
+            res_chars::f_87b3_fonts_printer_ascii12x24_bin_zip_begin,
+            res_chars::f_87b3_fonts_printer_ascii12x24_bin_zip_end
+        )
+    );
+    root_index.emplace(
+        "fonts/printer_kanji16x16.bin.zip",
+        f_980d_fonts_dir.directory.add_file(
+            "printer_kanji16x16.bin.zip",
+            res_chars::f_dc64_fonts_printer_kanji16x16_bin_zip_begin,
+            res_chars::f_dc64_fonts_printer_kanji16x16_bin_zip_end
+        )
+    );
+    root_index.emplace(
+        "fonts/printer_kanji24x24.bin.zip",
+        f_980d_fonts_dir.directory.add_file(
+            "printer_kanji24x24.bin.zip",
+            res_chars::f_2788_fonts_printer_kanji24x24_bin_zip_begin,
+            res_chars::f_2788_fonts_printer_kanji24x24_bin_zip_end
+        )
+    );
+    root_index.emplace(
+        "fonts/biosfont.bin.zip",
+        f_980d_fonts_dir.directory.add_file(
+            "biosfont.bin.zip",
+            res_chars::f_d593_fonts_biosfont_bin_zip_begin,
+            res_chars::f_d593_fonts_biosfont_bin_zip_end
+        )
+    );
+    root_index.emplace(
+        "i18n/fr.po",
+        f_db85_i18n_dir.directory.add_file(
+            "fr.po",
+            res_chars::f_3185_i18n_fr_po_begin,
+            res_chars::f_3185_i18n_fr_po_end
+        )
+    );
+    root_index.emplace(
+        "i18n/hu.po",
+        f_db85_i18n_dir.directory.add_file(
+            "hu.po",
+            res_chars::f_d655_i18n_hu_po_begin,
+            res_chars::f_d655_i18n_hu_po_end
+        )
+    );
+    root_index.emplace(
+        "i18n/ja.po",
+        f_db85_i18n_dir.directory.add_file(
+            "ja.po",
+            res_chars::f_b5e1_i18n_ja_po_begin,
+            res_chars::f_b5e1_i18n_ja_po_end
+        )
+    );
+    root_index.emplace(
+        "i18n/pt_BR.po",
+        f_db85_i18n_dir.directory.add_file(
+            "pt_BR.po",
+            res_chars::f_8c6a_i18n_pt_BR_po_begin,
+            res_chars::f_8c6a_i18n_pt_BR_po_end
+        )
+    );
+    root_index.emplace(
+        "i18n/sv.po",
+        f_db85_i18n_dir.directory.add_file(
+            "sv.po",
+            res_chars::f_0483_i18n_sv_po_begin,
+            res_chars::f_0483_i18n_sv_po_end
+        )
+    );
+    root_index.emplace(
+        "i18n/zh_CN.po",
+        f_db85_i18n_dir.directory.add_file(
+            "zh_CN.po",
+            res_chars::f_e1d4_i18n_zh_CN_po_begin,
+            res_chars::f_e1d4_i18n_zh_CN_po_end
+        )
+    );
+    root_index.emplace(
+        "i18n/zh_HK.po",
+        f_db85_i18n_dir.directory.add_file(
+            "zh_HK.po",
+            res_chars::f_5c7d_i18n_zh_HK_po_begin,
+            res_chars::f_5c7d_i18n_zh_HK_po_end
+        )
+    );
+    root_index.emplace(
+        "i18n/zh_TW.po",
+        f_db85_i18n_dir.directory.add_file(
+            "zh_TW.po",
+            res_chars::f_fcd2_i18n_zh_TW_po_begin,
+            res_chars::f_fcd2_i18n_zh_TW_po_end
+        )
+    );
+    return root_index;
+}
+
+}
+
+cmrc::embedded_filesystem get_filesystem() {
+    static auto& index = get_root_index();
+    return cmrc::embedded_filesystem{index};
+}
+
+} // flycast
+} // cmrc
+    

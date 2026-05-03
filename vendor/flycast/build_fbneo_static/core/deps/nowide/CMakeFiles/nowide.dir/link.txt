@@ -1,0 +1,2 @@
+C:\TDM-GCC-64\bin\ar.exe qc libnowide.a CMakeFiles/nowide.dir/src/console_buffer.cpp.obj CMakeFiles/nowide.dir/src/cstdio.cpp.obj CMakeFiles/nowide.dir/src/cstdlib.cpp.obj CMakeFiles/nowide.dir/src/filebuf.cpp.obj CMakeFiles/nowide.dir/src/iostream.cpp.obj CMakeFiles/nowide.dir/src/stat.cpp.obj
+C:\TDM-GCC-64\bin\ranlib.exe libnowide.a
