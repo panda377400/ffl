@@ -1,0 +1,20 @@
+// Optional transitional adapter.
+// Use this only if you temporarily build Flycast's libretro core as a prefixed static library.
+// The long-term target is a native Flycast shell/fbneo implementation, not libretro nesting.
+//
+// Required symbol prefix example at compile time:
+//   -Dretro_init=flycast_retro_init
+//   -Dretro_deinit=flycast_retro_deinit
+//   -Dretro_load_game=flycast_retro_load_game
+//   -Dretro_unload_game=flycast_retro_unload_game
+//   -Dretro_run=flycast_retro_run
+//   -Dretro_reset=flycast_retro_reset
+//   -Dretro_set_environment=flycast_retro_set_environment
+//   -Dretro_set_video_refresh=flycast_retro_set_video_refresh
+//   -Dretro_set_audio_sample=flycast_retro_set_audio_sample
+//   -Dretro_set_audio_sample_batch=flycast_retro_set_audio_sample_batch
+//   -Dretro_set_input_poll=flycast_retro_set_input_poll
+//   -Dretro_set_input_state=flycast_retro_set_input_state
+//
+// This file is intentionally not compiled by default because every FBNeo tree has
+// different libretro include paths and different OpenGL context ownership.

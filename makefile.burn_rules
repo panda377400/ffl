@@ -1,9 +1,6 @@
 MGBA_WRAP_SRC := $(notdir $(wildcard $(srcdir)burn/drv/mgba/mgba_wrap_*.c))
-AWAVE_WRAP_C_SRC := $(notdir $(wildcard $(srcdir)burn/drv/atomiswave/awave_wrap_*.c))
-AWAVE_WRAP_CPP_SRC := $(notdir $(wildcard $(srcdir)burn/drv/atomiswave/awave_wrap_*.cpp))
-AWAVE_WRAP_S_SRC := $(notdir $(wildcard $(srcdir)burn/drv/atomiswave/awave_wrap_*.S))
 
-alldir	= 	burn burn/devices burn/snd burn/drv burn/drv/atari burn/drv/atomiswave burn/drv/capcom burn/drv/cave burn/drv/channelf burn/drv/coleco burn/drv/cps3 burn/drv/dataeast \
+alldir	= 	burn burn/devices burn/snd burn/drv burn/drv/atari burn/drv/atomiswave burn/drv/atomiswave/flycast_shim burn/drv/capcom burn/drv/cave burn/drv/channelf burn/drv/coleco burn/drv/cps3 burn/drv/dataeast \
 			burn/drv/galaxian burn/drv/igs burn/drv/irem burn/drv/konami burn/drv/megadrive burn/drv/mgba burn/drv/mgba/generated/include burn/drv/mgba/upstream/include burn/drv/mgba/upstream/src burn/drv/mgba/upstream/src/third-party/inih burn/drv/midway burn/drv/pce burn/drv/pst90s burn/drv/pre90s burn/drv/neogeo burn/drv/nes burn/drv/snes \
 			burn/drv/pgm burn/drv/pgm2 burn/drv/psikyo burn/drv/sega burn/drv/sg1000 burn/drv/sms burn/drv/msx burn/drv/spectrum burn/drv/taito \
 			burn/drv/toaplan cpu cpu/a68k cpu/arm cpu/arm7 cpu/arm9 cpu/e132xs cpu/f8 cpu/h6280 cpu/hd6309 cpu/hmcs40 cpu/i386 cpu/i8039 cpu/i8x41 cpu/i8051 cpu/i8085 cpu/adsp2100 cpu/konami cpu/m377 cpu/mips3 cpu/m68k \
@@ -99,7 +96,7 @@ drvsrc	= 	d_akkaarrh.o d_arcadecl.o d_atarig1.o d_badlands.o d_batman.o d_blstro
 			\
 			d_mgba.o mgba_core.o mgba_version_stub.o $(MGBA_WRAP_SRC:.c=.o) \
 			\
-			d_awave.o d_naomi.o awave_core.o awave_embed.o awave_embed_stubs.o awave_imgread_stubs.o awave_softtexcache.o $(AWAVE_WRAP_C_SRC:.c=.o) $(AWAVE_WRAP_CPP_SRC:.cpp=.o) $(AWAVE_WRAP_S_SRC:.S=.o) \
+			d_awave.o d_naomi.o awave_core.o awave_content.o awave_input.o awave_audio.o awave_video.o fbneo_flycast_api.o \
 			\
 			d_pce.o \
 			\
