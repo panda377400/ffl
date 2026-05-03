@@ -494,21 +494,21 @@ static INT32 DrvScan(INT32 nAction, INT32* pnMin)
 static const NaomiGameConfig NaomiGame##_var = { \
 	#_var, #_var ".zip", _zipEntries, "awbios", "atomiswave", "awave", \
 	NaomiAtomiswaveJoypadMap, sizeof(NaomiAtomiswaveJoypadMap) / sizeof(NaomiAtomiswaveJoypadMap[0]), \
-	NULL, 0, NAOMI_GAME_INPUT_DIGITAL, \
+	NULL, 0, NAOMI_GAME_INPUT_DIGITAL, AWAVE_PLATFORM_ATOMISWAVE, NULL, \
 }
 
 #define AW_CONFIG_SPECIAL(_var, _zipEntries, _inputType) \
 static const NaomiGameConfig NaomiGame##_var = { \
 	#_var, #_var ".zip", _zipEntries, "awbios", "atomiswave", "awave", \
 	NaomiAtomiswaveJoypadMap, sizeof(NaomiAtomiswaveJoypadMap) / sizeof(NaomiAtomiswaveJoypadMap[0]), \
-	NULL, 0, _inputType, \
+	NULL, 0, _inputType, AWAVE_PLATFORM_ATOMISWAVE, NULL, \
 }
 
 #define AW_CONFIG_LIGHTGUN(_var, _zipEntries) \
 static const NaomiGameConfig NaomiGame##_var = { \
 	#_var, #_var ".zip", _zipEntries, "awbios", "atomiswave", "awave", \
 	NaomiAtomiswaveJoypadMap, sizeof(NaomiAtomiswaveJoypadMap) / sizeof(NaomiAtomiswaveJoypadMap[0]), \
-	NaomiAtomiswaveLightgunMap, sizeof(NaomiAtomiswaveLightgunMap) / sizeof(NaomiAtomiswaveLightgunMap[0]), NAOMI_GAME_INPUT_LIGHTGUN, \
+	NaomiAtomiswaveLightgunMap, sizeof(NaomiAtomiswaveLightgunMap) / sizeof(NaomiAtomiswaveLightgunMap[0]), NAOMI_GAME_INPUT_LIGHTGUN, AWAVE_PLATFORM_ATOMISWAVE, NULL, \
 }
 
 #define DEFINE_AW_INIT(_var) \

@@ -20,6 +20,7 @@
 #else
 #include <GL/gl.h>
 #include <sys/stat.h>
+#include <strings.h>
 #endif
 
 #include <libretro.h>
@@ -1150,6 +1151,78 @@ static bool NaomiEnvTruthy(const char* value)
 	return value != NULL && value[0] != 0 && strcmp(value, "0") != 0 && strcmp(value, "disabled") != 0 && strcmp(value, "false") != 0;
 }
 
+
+static const char* NaomiGetEnvPath(const char* key)
+{
+	const char* value = getenv(key);
+	return (value != NULL && value[0] != 0) ? value : NULL;
+}
+
+static AwavePlatform NaomiConfiguredPlatform()
+{
+	return (NaomiGame != NULL) ? NaomiGame->platform : AWAVE_PLATFORM_ATOMISWAVE;
+}
+
+static const char* NaomiPlatformName(AwavePlatform platform)
+{
+	switch (platform) {
+		case AWAVE_PLATFORM_DREAMCAST: return "dreamcast";
+		case AWAVE_PLATFORM_NAOMI2: return "naomi2";
+		case AWAVE_PLATFORM_NAOMI: return "naomi";
+		case AWAVE_PLATFORM_ATOMISWAVE:
+		default: return "atomiswave";
+	}
+}
+
+static const char* NaomiExternalContentPath()
+{
+	// Do not infer hardware from a file extension here. A driver is Atomiswave,
+	// NAOMI, NAOMI2 or Dreamcast only because its NaomiGameConfig says so.
+	// This prevents an Atomiswave game such as kofxi from being hijacked by
+	// a neighbouring Dreamcast/GDI file.
+	const AwavePlatform platform = NaomiConfiguredPlatform();
+	const char* envPath = NULL;
+
+	if (platform == AWAVE_PLATFORM_DREAMCAST) {
+		envPath = NaomiGetEnvPath("FBNEO_AWAVE_DREAMCAST_PATH");
+	}
+	if (envPath == NULL) {
+		envPath = NaomiGetEnvPath("FBNEO_AWAVE_CONTENT_PATH");
+	}
+	if (envPath != NULL) {
+		return envPath;
+	}
+	return (NaomiGame != NULL && NaomiGame->contentPath != NULL && NaomiGame->contentPath[0] != 0)
+		? NaomiGame->contentPath
+		: NULL;
+}
+
+static bool NaomiUseExternalContent()
+{
+	return NaomiExternalContentPath() != NULL;
+}
+
+static AwavePlatform NaomiRuntimePlatform()
+{
+	return NaomiConfiguredPlatform();
+}
+
+static const char* NaomiRuntimePlatformName()
+{
+	return NaomiPlatformName(NaomiRuntimePlatform());
+}
+
+static const char* NaomiRuntimeSystemOption()
+{
+	const AwavePlatform platform = NaomiRuntimePlatform();
+	if (platform == AWAVE_PLATFORM_ATOMISWAVE || platform == AWAVE_PLATFORM_NAOMI) {
+		return (NaomiGame != NULL && NaomiGame->systemName != NULL && NaomiGame->systemName[0] != 0)
+			? NaomiGame->systemName
+			: NaomiPlatformName(platform);
+	}
+	return NaomiPlatformName(platform);
+}
+
 static bool NaomiIsHeavyRendererGame()
 {
 	if (NaomiGame == NULL || NaomiGame->driverName == NULL) {
@@ -1291,8 +1364,8 @@ static const char* NaomiGetOptionValue(const char* key)
 	// - video quality options such as mipmapping, pvr2_filtering,
 	//   emulate_framebuffer, delay_frame_swapping, etc. are left to Flycast's
 	//   own defaults by returning NULL.
-	if (!strcmp(key, "reicast_system")) return (NaomiGame && NaomiGame->systemName) ? NaomiGame->systemName : "atomiswave";
-	if (!strcmp(key, "flycast_system")) return (NaomiGame && NaomiGame->systemName) ? NaomiGame->systemName : "atomiswave";
+	if (!strcmp(key, "reicast_system")) return NaomiRuntimeSystemOption();
+	if (!strcmp(key, "flycast_system")) return NaomiRuntimeSystemOption();
 
 	if (!strcmp(key, "reicast_internal_resolution")) return "640x480";
 	if (!strcmp(key, "flycast_internal_resolution")) return "640x480";
@@ -1579,7 +1652,8 @@ static INT32 NaomiLoadRetroGame()
 	const bool useHwContext = NaomiHwRenderRequested || NaomiHwRenderReady;
 
 	memset(&gameInfo, 0, sizeof(gameInfo));
-	gameInfo.path = NaomiTempZipPath;
+	gameInfo.path = NaomiUseExternalContent() ? NaomiExternalContentPath() : NaomiTempZipPath;
+	bprintf(0, _T("AWAVE load: platform=%S path=%S\n"), NaomiRuntimePlatformName(), gameInfo.path ? gameInfo.path : "<null>");
 
 	flycast_retro_audio_flush_buffer();
 
@@ -1601,7 +1675,9 @@ static INT32 NaomiLoadRetroGame()
 	// The direct ROM archive is only needed while flycast_retro_load_game()
 	// reads the NAOMI/Atomiswave blobs. Clear it immediately so large games
 	// such as samsptk do not keep a second full ROM copy in memory.
-	NaomiDirectArchiveClear();
+	if (!NaomiUseExternalContent()) {
+		NaomiDirectArchiveClear();
+	}
 
 	if (NaomiHwRenderRequested && !NaomiActivateHwRender()) {
 		bprintf(0, _T("naomi: failed to activate hw render context\n"));
@@ -1919,11 +1995,11 @@ static bool NaomiEnvironmentCallback(unsigned cmd, void* data)
 			return true;
 
 		case RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY:
-			*(const char**)data = NaomiTempRoot;
+			*(const char**)data = NaomiGetEnvPath("FBNEO_AWAVE_SYSTEM_DIR") ? NaomiGetEnvPath("FBNEO_AWAVE_SYSTEM_DIR") : NaomiTempRoot;
 			return true;
 
 		case RETRO_ENVIRONMENT_GET_SAVE_DIRECTORY:
-			*(const char**)data = NaomiTempSaveDir;
+			*(const char**)data = NaomiGetEnvPath("FBNEO_AWAVE_SAVE_DIR") ? NaomiGetEnvPath("FBNEO_AWAVE_SAVE_DIR") : NaomiTempSaveDir;
 			return true;
 
 		case RETRO_ENVIRONMENT_GET_VARIABLE: {
@@ -2074,7 +2150,13 @@ static size_t NaomiAudioBatchCallback(const int16_t* data, size_t frames)
 	const size_t targetFrames = (nBurnSoundLen > 0)
 		? (size_t)((double)nBurnSoundLen * sourcePerSink * (double)latencyFrames)
 		: 2048;
-	NaomiTrimAudioQueueLocked(std::max(targetFrames, frames + (size_t)64));
+	// Keep the bridge bounded. Flycast can burst more audio than FBNeo consumes
+	// during stalls; letting the vector grow causes late audio and uneven pacing.
+	const size_t hardLimitFrames = (nBurnSoundLen > 0)
+		? (size_t)((double)nBurnSoundLen * sourcePerSink * 4.0) + 256
+		: 4096;
+	NaomiTrimAudioQueueLocked(std::max(std::max(targetFrames, frames + (size_t)64), (size_t)512));
+	NaomiTrimAudioQueueLocked(hardLimitFrames);
 	return frames;
 }
 
@@ -2293,13 +2375,15 @@ INT32 NaomiCoreInit(const NaomiGameConfig* config)
 	NaomiLightgunMap = config->lightgunMap;
 	NaomiLightgunMapCount = config->lightgunMapCount;
 	NaomiResetFrameState();
-	bprintf(0, _T("AWAVE profile: visual mode=%S; render_preset=%S, RTTB=%S, alpha=%S, threaded_rendering=%S, direct_rom=%S, speed_hacks=%S, audio_latency_frames=%d\n"),
+	bprintf(0, _T("AWAVE profile: platform=%S; visual mode=%S; render_preset=%S, RTTB=%S, alpha=%S, threaded_rendering=%S, direct_rom=%S, external_content=%S, speed_hacks=%S, audio_latency_frames=%d\n"),
+		NaomiRuntimePlatformName(),
 		NaomiVideoPresentModeName(NaomiGetVideoPresentMode()),
 		NaomiGetRenderPresetName(),
 		NaomiGetRttbValue(),
 		NaomiGetAlphaSortingValue(),
 		NaomiGetThreadedRenderingValue(),
 		NaomiUseDirectArchive() ? "enabled" : "disabled",
+		NaomiUseExternalContent() ? "enabled" : "disabled",
 		NaomiUseSpeedHacks() ? "enabled" : "disabled",
 		NaomiAudioLatencyFrames());
 
@@ -2324,7 +2408,10 @@ INT32 NaomiCoreInit(const NaomiGameConfig* config)
 	OGLDoneCurrentContext();
 
 	NaomiBuildTempPaths();
-	if (NaomiUseDirectArchive()) {
+	if (NaomiUseExternalContent()) {
+		bprintf(0, _T("AWAVE profile: external %S content path=%S\n"),
+			NaomiRuntimePlatformName(), NaomiExternalContentPath());
+	} else if (NaomiUseDirectArchive()) {
 		if (NaomiBuildDirectContentArchive()) {
 			bprintf(0, _T("naomi: direct content archive build failed\n"));
 			return 1;
@@ -2347,7 +2434,10 @@ INT32 NaomiCoreInit(const NaomiGameConfig* config)
 	flycast_retro_audio_init();
 	flycast_retro_audio_flush_buffer();
 
-	const unsigned primaryDevice = (NaomiLightgunMap != NULL && NaomiLightgunMapCount > 0) ? RETRO_DEVICE_LIGHTGUN : RETRO_DEVICE_JOYPAD;
+	unsigned primaryDevice = (NaomiLightgunMap != NULL && NaomiLightgunMapCount > 0) ? RETRO_DEVICE_LIGHTGUN : RETRO_DEVICE_JOYPAD;
+	if (NaomiRuntimePlatform() == AWAVE_PLATFORM_DREAMCAST) {
+		primaryDevice = RETRO_DEVICE_JOYPAD;
+	}
 	for (unsigned i = 0; i < 4; i++) {
 		flycast_retro_set_controller_port_device(i, (i < 2) ? primaryDevice : RETRO_DEVICE_JOYPAD);
 	}

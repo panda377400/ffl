@@ -360,7 +360,7 @@ static INT32 DrvScan(INT32 nAction, INT32* pnMin)
 static const NaomiGameConfig NaomiGame##_var = { \
 	#_var, #_var ".zip", _zipEntries, "naomi", "naomi", "naomi", \
 	NaomiJoypadMap, sizeof(NaomiJoypadMap) / sizeof(NaomiJoypadMap[0]), \
-	NULL, 0, NAOMI_GAME_INPUT_DIGITAL, \
+	NULL, 0, NAOMI_GAME_INPUT_DIGITAL, AWAVE_PLATFORM_NAOMI, NULL, \
 }
 
 #define DEFINE_NAOMI_INIT(_var) \

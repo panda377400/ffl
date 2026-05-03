@@ -7,6 +7,13 @@ struct NaomiZipEntry {
 	INT32 burnRomIndex;
 };
 
+enum AwavePlatform {
+	AWAVE_PLATFORM_ATOMISWAVE = 0,
+	AWAVE_PLATFORM_NAOMI = 1,
+	AWAVE_PLATFORM_NAOMI2 = 2,
+	AWAVE_PLATFORM_DREAMCAST = 3,
+};
+
 struct NaomiGameConfig {
 	const char* driverName;
 	const char* zipName;
@@ -19,6 +26,8 @@ struct NaomiGameConfig {
 	const UINT32* lightgunMap;
 	UINT32 lightgunMapCount;
 	UINT32 inputType;
+	AwavePlatform platform;
+	const char* contentPath;
 };
 
 enum AwaveInputBits {
