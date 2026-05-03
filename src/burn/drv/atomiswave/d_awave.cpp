@@ -75,9 +75,9 @@ static struct BurnInputInfo AwaveRacingInputList[] = {
     { "P1 Start",   BIT_DIGITAL, AwaveJoy1 + 1, "p1 start"  },
     { "P1 Button 1",BIT_DIGITAL, AwaveJoy1 + 6, "p1 fire 1" },
     { "P1 Button 2",BIT_DIGITAL, AwaveJoy1 + 7, "p1 fire 2" },
-    { "P1 Steering",BIT_ANALOG_REL, &AwaveAnalog[0][0], "p1 x-axis" },
-    { "P1 Gas",     BIT_ANALOG_REL, &AwaveAnalog[0][1], "p1 z-axis" },
-    { "P1 Brake",   BIT_ANALOG_REL, &AwaveAnalog[0][2], "p1 rz-axis" },
+    { "P1 Steering",BIT_ANALOG_REL, (UINT8*)&AwaveAnalog[0][0], "p1 x-axis" },
+    { "P1 Gas",     BIT_ANALOG_REL, (UINT8*)&AwaveAnalog[0][1], "p1 z-axis" },
+    { "P1 Brake",   BIT_ANALOG_REL, (UINT8*)&AwaveAnalog[0][2], "p1 rz-axis" },
     { "Test",       BIT_DIGITAL, AwaveJoy1 + 12, "diag" },
     { "Reset",      BIT_DIGITAL, &AwaveReset, "reset" },
 };
@@ -88,14 +88,14 @@ static struct BurnInputInfo AwaveLightgunInputList[] = {
     { "P1 Start",   BIT_DIGITAL, AwaveJoy1 + 1, "p1 start"  },
     { "P1 Trigger", BIT_DIGITAL, AwaveJoy1 + 6, "p1 fire 1" },
     { "P1 Reload",  BIT_DIGITAL, AwaveJoy1 + 7, "p1 fire 2" },
-    { "P1 X",       BIT_ANALOG_REL, &AwaveAnalog[0][0], "mouse x-axis" },
-    { "P1 Y",       BIT_ANALOG_REL, &AwaveAnalog[0][1], "mouse y-axis" },
+    { "P1 X",       BIT_ANALOG_REL, (UINT8*)&AwaveAnalog[0][0], "mouse x-axis" },
+    { "P1 Y",       BIT_ANALOG_REL, (UINT8*)&AwaveAnalog[0][1], "mouse y-axis" },
     { "P2 Coin",    BIT_DIGITAL, AwaveJoy2 + 0, "p2 coin"   },
     { "P2 Start",   BIT_DIGITAL, AwaveJoy2 + 1, "p2 start"  },
     { "P2 Trigger", BIT_DIGITAL, AwaveJoy2 + 6, "p2 fire 1" },
     { "P2 Reload",  BIT_DIGITAL, AwaveJoy2 + 7, "p2 fire 2" },
-    { "P2 X",       BIT_ANALOG_REL, &AwaveAnalog[1][0], "p2 x-axis" },
-    { "P2 Y",       BIT_ANALOG_REL, &AwaveAnalog[1][1], "p2 y-axis" },
+    { "P2 X",       BIT_ANALOG_REL, (UINT8*)&AwaveAnalog[1][0], "p2 x-axis" },
+    { "P2 Y",       BIT_ANALOG_REL, (UINT8*)&AwaveAnalog[1][1], "p2 y-axis" },
     { "Test",       BIT_DIGITAL, AwaveJoy1 + 12, "diag" },
     { "Reset",      BIT_DIGITAL, &AwaveReset, "reset" },
 };
@@ -107,6 +107,7 @@ static void AwaveClearInputs()
     memset(AwaveJoy2, 0, sizeof(AwaveJoy2));
     memset(AwaveJoy3, 0, sizeof(AwaveJoy3));
     memset(AwaveJoy4, 0, sizeof(AwaveJoy4));
+    memset(AwaveAnalog, 0, sizeof(AwaveAnalog));
 }
 
 static UINT32 PackDigital(const UINT8* joy)
