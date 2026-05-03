@@ -1,21 +1,6 @@
 #include "awave_content.h"
 #include <cstring>
 
-static INT32 NormalizeAwaveBurnRomIndex(const NaomiGameConfig* config, INT32 index)
-{
-	/*
-	 * d_awave.cpp currently stores Atomiswave game ROM indexes as if the
-	 * three awbios ROMs were prepended to each game set.  BurnDrvGetRomInfo()
-	 * and BurnLoadRom() address only the active game's BurnRomDesc, so convert
-	 * those merged indexes back to local game indexes here.
-	 */
-	if (config != NULL && config->platform == AWAVE_PLATFORM_ATOMISWAVE && index >= 3) {
-		return index - 3;
-	}
-
-	return index;
-}
-
 static INT32 LoadBurnRomToVector(INT32 index, std::vector<UINT8>& out)
 {
 	struct BurnRomInfo ri;
@@ -30,7 +15,6 @@ static INT32 LoadBurnRomToVector(INT32 index, std::vector<UINT8>& out)
 	}
 
 	out.resize(ri.nLen);
-
 	if (BurnLoadRom(out.data(), index, 1)) {
 		out.clear();
 		return 1;
@@ -55,11 +39,12 @@ INT32 AwaveBuildContentPackage(const NaomiGameConfig* config, AwaveContentPackag
 		AwaveContentEntry entry;
 		entry.filename = config->zipEntries[i].filename;
 
-		const INT32 originalIndex = config->zipEntries[i].burnRomIndex;
-		const INT32 burnIndex = NormalizeAwaveBurnRomIndex(config, originalIndex);
-
-		if (LoadBurnRomToVector(burnIndex, entry.data)) {
-			bprintf(0, _T("atomiswave: failed to load ROM index %d normalized from %d for %S\n"), burnIndex, originalIndex, entry.filename);
+		// Important: Atomiswave/NAOMI BurnRomDesc entries include BIOS rows first.
+		// The burnRomIndex stored in d_awave.cpp/d_naomi.cpp is already the real
+		// BurnLoadRom() index. Do not normalize 3->0 here, or game ROM names will
+		// be paired with BIOS bytes and Flycast will reject the package.
+		if (LoadBurnRomToVector(config->zipEntries[i].burnRomIndex, entry.data)) {
+			bprintf(0, _T("atomiswave: failed to load ROM index %d for %S\n"), config->zipEntries[i].burnRomIndex, entry.filename);
 			AwaveFreeContentPackage(outPackage);
 			return 1;
 		}
