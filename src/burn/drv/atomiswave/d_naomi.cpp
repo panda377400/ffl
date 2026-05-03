@@ -6,6 +6,7 @@
 
 #include "burnint.h"
 #include "awave_core.h"
+#include "awave_platform.h"
 
 static UINT8 NaomiRecalc = 0;
 static UINT8 NaomiReset = 0;
@@ -179,7 +180,7 @@ STD_ROM_FN(naomi)
 static INT32 naomiInit() { return 1; }
 struct BurnDriver BurnDrvNaomiNaomi = {
     "naomi", NULL, NULL, NULL, "1998", "Sega NAOMI BIOS\0", "BIOS only", "Sega", "Sega NAOMI",
-    NULL, NULL, NULL, NULL, BDF_BOARDROM, 0, HARDWARE_MISC_POST90S, 0, 0,
+    NULL, NULL, NULL, NULL, BDF_BOARDROM, 0, HARDWARE_SEGA_NAOMI, GBF_BIOS, 0,
     NULL, naomiRomInfo, naomiRomName, NULL, NULL, NULL, NULL, Naomi2PInputInfo, NULL,
     naomiInit, NaomiExitCommon, NULL, NULL, NULL, NULL, 0, 640, 480, 4, 3
 };
@@ -190,7 +191,7 @@ STD_ROM_FN(hod2bios)
 static INT32 hod2biosInit() { return 1; }
 struct BurnDriver BurnDrvNaomiHod2bios = {
     "hod2bios", NULL, NULL, NULL, "1998", "The House of the Dead 2 BIOS\0", "BIOS only", "Sega", "Sega NAOMI",
-    NULL, NULL, NULL, NULL, BDF_BOARDROM, 0, HARDWARE_MISC_POST90S, 0, 0,
+    NULL, NULL, NULL, NULL, BDF_BOARDROM, 0, HARDWARE_SEGA_NAOMI, GBF_BIOS, 0,
     NULL, hod2biosRomInfo, hod2biosRomName, NULL, NULL, NULL, NULL, NaomiLightgunInputInfo, NULL,
     hod2biosInit, NaomiExitCommon, NULL, NULL, NULL, NULL, 0, 640, 480, 4, 3
 };
@@ -224,7 +225,7 @@ static NaomiZipEntry pstoneZipEntries[] = {
 NAOMI_INIT_FUNC(pstone, pstoneZipEntries, NAOMI_GAME_INPUT_DIGITAL, "naomi.zip", "naomi", "naomi", AWAVE_PLATFORM_NAOMI)
 struct BurnDriver BurnDrvNaomipstone = {
     "pstone", NULL, "naomi", NULL, "1999", "Power Stone" "\0", NULL, "Capcom", "Sega NAOMI",
-    NULL, NULL, NULL, NULL, BDF_GAME_WORKING, 2, HARDWARE_MISC_POST90S, GBF_MISC, 0,
+    NULL, NULL, NULL, NULL, BDF_GAME_WORKING, 2, HARDWARE_SEGA_NAOMI, GBF_MISC, 0,
     NULL, pstoneRomInfo, pstoneRomName, NULL, NULL, NULL, NULL, Naomi2PInputInfo, NULL,
     pstoneInit, NaomiExitCommon, NaomiFrameCommon, NaomiDrawCommon, NaomiScanCommon, &NaomiRecalc,
     0x1000000, 640, 480, 4, 3
@@ -286,7 +287,7 @@ static NaomiZipEntry doa2mZipEntries[] = {
 NAOMI_INIT_FUNC(doa2m, doa2mZipEntries, NAOMI_GAME_INPUT_DIGITAL, "naomi.zip", "naomi", "naomi", AWAVE_PLATFORM_NAOMI)
 struct BurnDriver BurnDrvNaomidoa2m = {
     "doa2m", NULL, "naomi", NULL, "2000", "Dead or Alive 2 Millennium" "\0", NULL, "Tecmo", "Sega NAOMI",
-    NULL, NULL, NULL, NULL, BDF_GAME_WORKING, 2, HARDWARE_MISC_POST90S, GBF_MISC, 0,
+    NULL, NULL, NULL, NULL, BDF_GAME_WORKING, 2, HARDWARE_SEGA_NAOMI, GBF_MISC, 0,
     NULL, doa2mRomInfo, doa2mRomName, NULL, NULL, NULL, NULL, Naomi2PInputInfo, NULL,
     doa2mInit, NaomiExitCommon, NaomiFrameCommon, NaomiDrawCommon, NaomiScanCommon, &NaomiRecalc,
     0x1000000, 640, 480, 4, 3
@@ -348,7 +349,7 @@ static NaomiZipEntry doa2ZipEntries[] = {
 NAOMI_INIT_FUNC(doa2, doa2ZipEntries, NAOMI_GAME_INPUT_DIGITAL, "naomi.zip", "naomi", "naomi", AWAVE_PLATFORM_NAOMI)
 struct BurnDriver BurnDrvNaomidoa2 = {
     "doa2", "doa2m", "naomi", NULL, "1999", "Dead or Alive 2" "\0", NULL, "Tecmo", "Sega NAOMI",
-    NULL, NULL, NULL, NULL, BDF_GAME_WORKING, 2, HARDWARE_MISC_POST90S, GBF_MISC, 0,
+    NULL, NULL, NULL, NULL, BDF_GAME_WORKING, 2, HARDWARE_SEGA_NAOMI, GBF_MISC, 0,
     NULL, doa2RomInfo, doa2RomName, NULL, NULL, NULL, NULL, Naomi2PInputInfo, NULL,
     doa2Init, NaomiExitCommon, NaomiFrameCommon, NaomiDrawCommon, NaomiScanCommon, &NaomiRecalc,
     0x1000000, 640, 480, 4, 3
@@ -386,7 +387,7 @@ static NaomiZipEntry spawnZipEntries[] = {
 NAOMI_INIT_FUNC(spawn, spawnZipEntries, NAOMI_GAME_INPUT_DIGITAL, "naomi.zip", "naomi", "naomi", AWAVE_PLATFORM_NAOMI)
 struct BurnDriver BurnDrvNaomispawn = {
     "spawn", NULL, "naomi", NULL, "1999", "Spawn: In the Demon's Hand (Rev B)" "\0", NULL, "Todd McFarlane / Capcom", "Sega NAOMI",
-    NULL, NULL, NULL, NULL, BDF_GAME_WORKING, 4, HARDWARE_MISC_POST90S, GBF_MISC, 0,
+    NULL, NULL, NULL, NULL, BDF_GAME_WORKING, 4, HARDWARE_SEGA_NAOMI, GBF_MISC, 0,
     NULL, spawnRomInfo, spawnRomName, NULL, NULL, NULL, NULL, Naomi4PInputInfo, NULL,
     spawnInit, NaomiExitCommon, NaomiFrameCommon, NaomiDrawCommon, NaomiScanCommon, &NaomiRecalc,
     0x1000000, 640, 480, 4, 3
@@ -438,7 +439,7 @@ static NaomiZipEntry mvsc2ZipEntries[] = {
 NAOMI_INIT_FUNC(mvsc2, mvsc2ZipEntries, NAOMI_GAME_INPUT_DIGITAL, "naomi.zip", "naomi", "naomi", AWAVE_PLATFORM_NAOMI)
 struct BurnDriver BurnDrvNaomimvsc2 = {
     "mvsc2", NULL, "naomi", NULL, "2000", "Marvel Vs. Capcom 2: New Age of Heroes (Export, Korea, Rev A)" "\0", NULL, "Capcom / Marvel", "Sega NAOMI",
-    NULL, NULL, NULL, NULL, BDF_GAME_WORKING, 2, HARDWARE_MISC_POST90S, GBF_MISC, 0,
+    NULL, NULL, NULL, NULL, BDF_GAME_WORKING, 2, HARDWARE_SEGA_NAOMI, GBF_MISC, 0,
     NULL, mvsc2RomInfo, mvsc2RomName, NULL, NULL, NULL, NULL, Naomi2PInputInfo, NULL,
     mvsc2Init, NaomiExitCommon, NaomiFrameCommon, NaomiDrawCommon, NaomiScanCommon, &NaomiRecalc,
     0x1000000, 640, 480, 4, 3
@@ -486,7 +487,7 @@ static NaomiZipEntry mvsc2uZipEntries[] = {
 NAOMI_INIT_FUNC(mvsc2u, mvsc2uZipEntries, NAOMI_GAME_INPUT_DIGITAL, "naomi.zip", "naomi", "naomi", AWAVE_PLATFORM_NAOMI)
 struct BurnDriver BurnDrvNaomimvsc2u = {
     "mvsc2u", "mvsc2", "naomi", NULL, "2000", "Marvel Vs. Capcom 2: New Age of Heroes (USA, Rev A)" "\0", NULL, "Capcom / Marvel", "Sega NAOMI",
-    NULL, NULL, NULL, NULL, BDF_GAME_WORKING, 2, HARDWARE_MISC_POST90S, GBF_MISC, 0,
+    NULL, NULL, NULL, NULL, BDF_GAME_WORKING, 2, HARDWARE_SEGA_NAOMI, GBF_MISC, 0,
     NULL, mvsc2uRomInfo, mvsc2uRomName, NULL, NULL, NULL, NULL, Naomi2PInputInfo, NULL,
     mvsc2uInit, NaomiExitCommon, NaomiFrameCommon, NaomiDrawCommon, NaomiScanCommon, &NaomiRecalc,
     0x1000000, 640, 480, 4, 3
@@ -522,7 +523,7 @@ static NaomiZipEntry pstone2ZipEntries[] = {
 NAOMI_INIT_FUNC(pstone2, pstone2ZipEntries, NAOMI_GAME_INPUT_DIGITAL, "naomi.zip", "naomi", "naomi", AWAVE_PLATFORM_NAOMI)
 struct BurnDriver BurnDrvNaomipstone2 = {
     "pstone2", NULL, "naomi", NULL, "2000", "Power Stone 2" "\0", NULL, "Capcom", "Sega NAOMI",
-    NULL, NULL, NULL, NULL, BDF_GAME_WORKING, 2, HARDWARE_MISC_POST90S, GBF_MISC, 0,
+    NULL, NULL, NULL, NULL, BDF_GAME_WORKING, 2, HARDWARE_SEGA_NAOMI, GBF_MISC, 0,
     NULL, pstone2RomInfo, pstone2RomName, NULL, NULL, NULL, NULL, Naomi2PInputInfo, NULL,
     pstone2Init, NaomiExitCommon, NaomiFrameCommon, NaomiDrawCommon, NaomiScanCommon, &NaomiRecalc,
     0x1000000, 640, 480, 4, 3
@@ -554,7 +555,7 @@ static NaomiZipEntry capsnkZipEntries[] = {
 NAOMI_INIT_FUNC(capsnk, capsnkZipEntries, NAOMI_GAME_INPUT_DIGITAL, "naomi.zip", "naomi", "naomi", AWAVE_PLATFORM_NAOMI)
 struct BurnDriver BurnDrvNaomicapsnk = {
     "capsnk", NULL, "naomi", NULL, "2000", "Capcom Vs. SNK: Millennium Fight 2000 (Rev C)" "\0", NULL, "Capcom / SNK", "Sega NAOMI",
-    NULL, NULL, NULL, NULL, BDF_GAME_WORKING, 2, HARDWARE_MISC_POST90S, GBF_MISC, 0,
+    NULL, NULL, NULL, NULL, BDF_GAME_WORKING, 2, HARDWARE_SEGA_NAOMI, GBF_MISC, 0,
     NULL, capsnkRomInfo, capsnkRomName, NULL, NULL, NULL, NULL, Naomi2PInputInfo, NULL,
     capsnkInit, NaomiExitCommon, NaomiFrameCommon, NaomiDrawCommon, NaomiScanCommon, &NaomiRecalc,
     0x1000000, 640, 480, 4, 3
@@ -596,7 +597,7 @@ static NaomiZipEntry cspikeZipEntries[] = {
 NAOMI_INIT_FUNC(cspike, cspikeZipEntries, NAOMI_GAME_INPUT_DIGITAL, "naomi.zip", "naomi", "naomi", AWAVE_PLATFORM_NAOMI)
 struct BurnDriver BurnDrvNaomicspike = {
     "cspike", NULL, "naomi", NULL, "2000", "Cannon Spike / Gun Spike" "\0", NULL, "Psikyo / Capcom", "Sega NAOMI",
-    NULL, NULL, NULL, NULL, BDF_GAME_WORKING, 2, HARDWARE_MISC_POST90S, GBF_MISC, 0,
+    NULL, NULL, NULL, NULL, BDF_GAME_WORKING, 2, HARDWARE_SEGA_NAOMI, GBF_MISC, 0,
     NULL, cspikeRomInfo, cspikeRomName, NULL, NULL, NULL, NULL, Naomi2PInputInfo, NULL,
     cspikeInit, NaomiExitCommon, NaomiFrameCommon, NaomiDrawCommon, NaomiScanCommon, &NaomiRecalc,
     0x1000000, 640, 480, 4, 3
@@ -642,7 +643,7 @@ static NaomiZipEntry ggxZipEntries[] = {
 NAOMI_INIT_FUNC(ggx, ggxZipEntries, NAOMI_GAME_INPUT_DIGITAL, "naomi.zip", "naomi", "naomi", AWAVE_PLATFORM_NAOMI)
 struct BurnDriver BurnDrvNaomiggx = {
     "ggx", NULL, "naomi", NULL, "2000", "Guilty Gear X" "\0", NULL, "Arc System Works", "Sega NAOMI",
-    NULL, NULL, NULL, NULL, BDF_GAME_WORKING, 2, HARDWARE_MISC_POST90S, GBF_MISC, 0,
+    NULL, NULL, NULL, NULL, BDF_GAME_WORKING, 2, HARDWARE_SEGA_NAOMI, GBF_MISC, 0,
     NULL, ggxRomInfo, ggxRomName, NULL, NULL, NULL, NULL, Naomi2PInputInfo, NULL,
     ggxInit, NaomiExitCommon, NaomiFrameCommon, NaomiDrawCommon, NaomiScanCommon, &NaomiRecalc,
     0x1000000, 640, 480, 4, 3
@@ -670,7 +671,7 @@ static NaomiZipEntry gwing2ZipEntries[] = {
 NAOMI_INIT_FUNC(gwing2, gwing2ZipEntries, NAOMI_GAME_INPUT_DIGITAL, "naomi.zip", "naomi", "naomi", AWAVE_PLATFORM_NAOMI)
 struct BurnDriver BurnDrvNaomigwing2 = {
     "gwing2", NULL, "naomi", NULL, "2000", "Giga Wing 2" "\0", NULL, "Takumi / Capcom", "Sega NAOMI",
-    NULL, NULL, NULL, NULL, BDF_GAME_WORKING, 2, HARDWARE_MISC_POST90S, GBF_MISC, 0,
+    NULL, NULL, NULL, NULL, BDF_GAME_WORKING, 2, HARDWARE_SEGA_NAOMI, GBF_MISC, 0,
     NULL, gwing2RomInfo, gwing2RomName, NULL, NULL, NULL, NULL, Naomi2PInputInfo, NULL,
     gwing2Init, NaomiExitCommon, NaomiFrameCommon, NaomiDrawCommon, NaomiScanCommon, &NaomiRecalc,
     0x1000000, 640, 480, 4, 3
@@ -710,7 +711,7 @@ static NaomiZipEntry pjusticZipEntries[] = {
 NAOMI_INIT_FUNC(pjustic, pjusticZipEntries, NAOMI_GAME_INPUT_DIGITAL, "naomi.zip", "naomi", "naomi", AWAVE_PLATFORM_NAOMI)
 struct BurnDriver BurnDrvNaomipjustic = {
     "pjustic", NULL, "naomi", NULL, "2000", "Project Justice / Moero! Justice Gakuen (Rev B)" "\0", NULL, "Capcom", "Sega NAOMI",
-    NULL, NULL, NULL, NULL, BDF_GAME_WORKING, 2, HARDWARE_MISC_POST90S, GBF_MISC, 0,
+    NULL, NULL, NULL, NULL, BDF_GAME_WORKING, 2, HARDWARE_SEGA_NAOMI, GBF_MISC, 0,
     NULL, pjusticRomInfo, pjusticRomName, NULL, NULL, NULL, NULL, Naomi2PInputInfo, NULL,
     pjusticInit, NaomiExitCommon, NaomiFrameCommon, NaomiDrawCommon, NaomiScanCommon, &NaomiRecalc,
     0x1000000, 640, 480, 4, 3
@@ -738,7 +739,7 @@ static NaomiZipEntry zerogu2ZipEntries[] = {
 NAOMI_INIT_FUNC(zerogu2, zerogu2ZipEntries, NAOMI_GAME_INPUT_DIGITAL, "naomi.zip", "naomi", "naomi", AWAVE_PLATFORM_NAOMI)
 struct BurnDriver BurnDrvNaomizerogu2 = {
     "zerogu2", NULL, "naomi", NULL, "2001", "Zero Gunner 2" "\0", NULL, "Psikyo", "Sega NAOMI",
-    NULL, NULL, NULL, NULL, BDF_GAME_WORKING, 2, HARDWARE_MISC_POST90S, GBF_MISC, 0,
+    NULL, NULL, NULL, NULL, BDF_GAME_WORKING, 2, HARDWARE_SEGA_NAOMI, GBF_MISC, 0,
     NULL, zerogu2RomInfo, zerogu2RomName, NULL, NULL, NULL, NULL, Naomi2PInputInfo, NULL,
     zerogu2Init, NaomiExitCommon, NaomiFrameCommon, NaomiDrawCommon, NaomiScanCommon, &NaomiRecalc,
     0x1000000, 640, 480, 4, 3
@@ -778,7 +779,7 @@ static NaomiZipEntry vtennisZipEntries[] = {
 NAOMI_INIT_FUNC(vtennis, vtennisZipEntries, NAOMI_GAME_INPUT_DIGITAL, "naomi.zip", "naomi", "naomi", AWAVE_PLATFORM_NAOMI)
 struct BurnDriver BurnDrvNaomivtennis = {
     "vtennis", NULL, "naomi", NULL, "1999", "Virtua Tennis / Power Smash" "\0", NULL, "Sega", "Sega NAOMI",
-    NULL, NULL, NULL, NULL, BDF_GAME_WORKING, 2, HARDWARE_MISC_POST90S, GBF_MISC, 0,
+    NULL, NULL, NULL, NULL, BDF_GAME_WORKING, 2, HARDWARE_SEGA_NAOMI, GBF_MISC, 0,
     NULL, vtennisRomInfo, vtennisRomName, NULL, NULL, NULL, NULL, Naomi2PInputInfo, NULL,
     vtennisInit, NaomiExitCommon, NaomiFrameCommon, NaomiDrawCommon, NaomiScanCommon, &NaomiRecalc,
     0x1000000, 640, 480, 4, 3
@@ -836,7 +837,7 @@ static NaomiZipEntry hotd2ZipEntries[] = {
 NAOMI_INIT_FUNC(hotd2, hotd2ZipEntries, NAOMI_GAME_INPUT_LIGHTGUN, "hod2bios.zip", "naomi", "naomi", AWAVE_PLATFORM_NAOMI)
 struct BurnDriver BurnDrvNaomihotd2 = {
     "hotd2", NULL, "hod2bios", NULL, "1998", "The House of the Dead 2 (USA)" "\0", NULL, "Sega", "Sega NAOMI",
-    NULL, NULL, NULL, NULL, BDF_GAME_WORKING, 2, HARDWARE_MISC_POST90S, GBF_MISC, 0,
+    NULL, NULL, NULL, NULL, BDF_GAME_WORKING, 2, HARDWARE_SEGA_NAOMI, GBF_MISC, 0,
     NULL, hotd2RomInfo, hotd2RomName, NULL, NULL, NULL, NULL, NaomiLightgunInputInfo, NULL,
     hotd2Init, NaomiExitCommon, NaomiFrameCommon, NaomiDrawCommon, NaomiScanCommon, &NaomiRecalc,
     0x1000000, 640, 480, 4, 3

@@ -116,7 +116,8 @@ INT32 NaomiCoreInit(const NaomiGameConfig* config)
     cb.user = NULL;
 
     if (!fbfc_init(&cb)) {
-        bprintf(0, _T("atomiswave: fbneo_flycast_api init failed. Link real vendor/flycast adapter, not the stub.\n"));
+        bprintf(0, _T("atomiswave: fbneo_flycast_api init failed. You are still linked to the compile-only stub, or the vendor/flycast adapter did not initialize.\n"));
+        bprintf(0, _T("atomiswave: install a real static Flycast adapter before launching NAOMI/Atomiswave games.\n"));
         return 1;
     }
     g_coreInited = true;
@@ -135,7 +136,8 @@ INT32 NaomiCoreInit(const NaomiGameConfig* config)
     }
 
     if (!fbfc_load_game(&game)) {
-        bprintf(0, _T("atomiswave: Flycast failed to load %S\n"), config->driverName);
+        bprintf(0, _T("atomiswave: Flycast failed to load %S. Check ROM set, BIOS zip, and whether fbneo_flycast_api.cpp is still the stub.\n"), config->driverName);
+        bprintf(0, _T("atomiswave: driver zip=%S bios=%S system=%S\n"), config->zipName, config->biosZipName ? config->biosZipName : "", config->systemName ? config->systemName : "");
         NaomiCoreExit();
         return 1;
     }

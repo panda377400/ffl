@@ -4,6 +4,7 @@
 
 #include "burnint.h"
 #include "awave_core.h"
+#include "awave_platform.h"
 
 static UINT8 AwaveRecalc = 0;
 static UINT8 AwaveReset = 0;
@@ -175,7 +176,7 @@ STD_ROM_FN(awbios)
 static INT32 awbiosInit() { return 1; }
 struct BurnDriver BurnDrvAwaveAwbios = {
     "awbios", NULL, NULL, NULL, "2001", "Atomiswave BIOS\0", "BIOS only", "Sammy", "Atomiswave",
-    NULL, NULL, NULL, NULL, BDF_BOARDROM, 0, HARDWARE_MISC_POST90S, 0, 0,
+    NULL, NULL, NULL, NULL, BDF_BOARDROM, 0, HARDWARE_SAMMY_ATOMISWAVE, GBF_BIOS, 0,
     NULL, awbiosRomInfo, awbiosRomName, NULL, NULL, NULL, NULL, Awave2PInputInfo, NULL,
     awbiosInit, AwaveExitCommon, NULL, NULL, NULL, NULL, 0, 640, 480, 4, 3
 };
@@ -196,7 +197,7 @@ static NaomiZipEntry sprtshotZipEntries[] = {
 AWAVE_INIT_FUNC(sprtshot, sprtshotZipEntries, NAOMI_GAME_INPUT_LIGHTGUN)
 struct BurnDriver BurnDrvAwavesprtshot = {
     "sprtshot", NULL, "awbios", NULL, "2003", "Sports Shooting USA" "\0", NULL, "Sammy USA", "Atomiswave",
-    NULL, NULL, NULL, NULL, BDF_GAME_WORKING, 2, HARDWARE_MISC_POST90S, GBF_MISC, 0,
+    NULL, NULL, NULL, NULL, BDF_GAME_WORKING, 2, HARDWARE_SAMMY_ATOMISWAVE, GBF_MISC, 0,
     NULL, sprtshotRomInfo, sprtshotRomName, NULL, NULL, NULL, NULL, AwaveLightgunInputInfo, NULL,
     sprtshotInit, AwaveExitCommon, AwaveFrameCommon, AwaveDrawCommon, AwaveScanCommon, &AwaveRecalc,
     0x1000000, 640, 480, 4, 3
@@ -218,7 +219,7 @@ static NaomiZipEntry dolphinZipEntries[] = {
 AWAVE_INIT_FUNC(dolphin, dolphinZipEntries, NAOMI_GAME_INPUT_DIGITAL)
 struct BurnDriver BurnDrvAwavedolphin = {
     "dolphin", NULL, "awbios", NULL, "2003", "Dolphin Blue" "\0", NULL, "Sammy", "Atomiswave",
-    NULL, NULL, NULL, NULL, BDF_GAME_WORKING, 2, HARDWARE_MISC_POST90S, GBF_MISC, 0,
+    NULL, NULL, NULL, NULL, BDF_GAME_WORKING, 2, HARDWARE_SAMMY_ATOMISWAVE, GBF_MISC, 0,
     NULL, dolphinRomInfo, dolphinRomName, NULL, NULL, NULL, NULL, Awave2PInputInfo, NULL,
     dolphinInit, AwaveExitCommon, AwaveFrameCommon, AwaveDrawCommon, AwaveScanCommon, &AwaveRecalc,
     0x1000000, 640, 480, 4, 3
@@ -242,7 +243,7 @@ static NaomiZipEntry demofistZipEntries[] = {
 AWAVE_INIT_FUNC(demofist, demofistZipEntries, NAOMI_GAME_INPUT_DIGITAL)
 struct BurnDriver BurnDrvAwavedemofist = {
     "demofist", NULL, "awbios", NULL, "2003", "Demolish Fist" "\0", NULL, "Polygon Magic / Dimps", "Atomiswave",
-    NULL, NULL, NULL, NULL, BDF_GAME_WORKING, 2, HARDWARE_MISC_POST90S, GBF_MISC, 0,
+    NULL, NULL, NULL, NULL, BDF_GAME_WORKING, 2, HARDWARE_SAMMY_ATOMISWAVE, GBF_MISC, 0,
     NULL, demofistRomInfo, demofistRomName, NULL, NULL, NULL, NULL, Awave2PInputInfo, NULL,
     demofistInit, AwaveExitCommon, AwaveFrameCommon, AwaveDrawCommon, AwaveScanCommon, &AwaveRecalc,
     0x1000000, 640, 480, 4, 3
@@ -264,7 +265,7 @@ static NaomiZipEntry rangrmsnZipEntries[] = {
 AWAVE_INIT_FUNC(rangrmsn, rangrmsnZipEntries, NAOMI_GAME_INPUT_LIGHTGUN)
 struct BurnDriver BurnDrvAwaverangrmsn = {
     "rangrmsn", NULL, "awbios", NULL, "2004", "Ranger Mission" "\0", NULL, "RIZ Inc. / Sammy", "Atomiswave",
-    NULL, NULL, NULL, NULL, BDF_GAME_WORKING, 2, HARDWARE_MISC_POST90S, GBF_MISC, 0,
+    NULL, NULL, NULL, NULL, BDF_GAME_WORKING, 2, HARDWARE_SAMMY_ATOMISWAVE, GBF_MISC, 0,
     NULL, rangrmsnRomInfo, rangrmsnRomName, NULL, NULL, NULL, NULL, AwaveLightgunInputInfo, NULL,
     rangrmsnInit, AwaveExitCommon, AwaveFrameCommon, AwaveDrawCommon, AwaveScanCommon, &AwaveRecalc,
     0x1000000, 640, 480, 4, 3
@@ -288,7 +289,7 @@ static NaomiZipEntry rumblefZipEntries[] = {
 AWAVE_INIT_FUNC(rumblef, rumblefZipEntries, NAOMI_GAME_INPUT_DIGITAL)
 struct BurnDriver BurnDrvAwaverumblef = {
     "rumblef", NULL, "awbios", NULL, "2004", "The Rumble Fish" "\0", NULL, "Sammy / Dimps", "Atomiswave",
-    NULL, NULL, NULL, NULL, BDF_GAME_WORKING, 2, HARDWARE_MISC_POST90S, GBF_MISC, 0,
+    NULL, NULL, NULL, NULL, BDF_GAME_WORKING, 2, HARDWARE_SAMMY_ATOMISWAVE, GBF_MISC, 0,
     NULL, rumblefRomInfo, rumblefRomName, NULL, NULL, NULL, NULL, Awave2PInputInfo, NULL,
     rumblefInit, AwaveExitCommon, AwaveFrameCommon, AwaveDrawCommon, AwaveScanCommon, &AwaveRecalc,
     0x1000000, 640, 480, 4, 3
@@ -312,7 +313,7 @@ static NaomiZipEntry fotnsZipEntries[] = {
 AWAVE_INIT_FUNC(fotns, fotnsZipEntries, NAOMI_GAME_INPUT_DIGITAL)
 struct BurnDriver BurnDrvAwavefotns = {
     "fotns", NULL, "awbios", NULL, "2005", "Fist Of The North Star / Hokuto no Ken" "\0", NULL, "Arc System Works / Sega", "Atomiswave",
-    NULL, NULL, NULL, NULL, BDF_GAME_WORKING, 2, HARDWARE_MISC_POST90S, GBF_MISC, 0,
+    NULL, NULL, NULL, NULL, BDF_GAME_WORKING, 2, HARDWARE_SAMMY_ATOMISWAVE, GBF_MISC, 0,
     NULL, fotnsRomInfo, fotnsRomName, NULL, NULL, NULL, NULL, Awave2PInputInfo, NULL,
     fotnsInit, AwaveExitCommon, AwaveFrameCommon, AwaveDrawCommon, AwaveScanCommon, &AwaveRecalc,
     0x1000000, 640, 480, 4, 3
@@ -335,7 +336,7 @@ static NaomiZipEntry kofnwZipEntries[] = {
 AWAVE_INIT_FUNC(kofnw, kofnwZipEntries, NAOMI_GAME_INPUT_DIGITAL)
 struct BurnDriver BurnDrvAwavekofnw = {
     "kofnw", NULL, "awbios", NULL, "2004", "The King of Fighters Neowave" "\0", NULL, "Sammy / SNK Playmore", "Atomiswave",
-    NULL, NULL, NULL, NULL, BDF_GAME_WORKING, 2, HARDWARE_MISC_POST90S, GBF_MISC, 0,
+    NULL, NULL, NULL, NULL, BDF_GAME_WORKING, 2, HARDWARE_SAMMY_ATOMISWAVE, GBF_MISC, 0,
     NULL, kofnwRomInfo, kofnwRomName, NULL, NULL, NULL, NULL, Awave2PInputInfo, NULL,
     kofnwInit, AwaveExitCommon, AwaveFrameCommon, AwaveDrawCommon, AwaveScanCommon, &AwaveRecalc,
     0x1000000, 640, 480, 4, 3
@@ -358,7 +359,7 @@ static NaomiZipEntry xtrmhuntZipEntries[] = {
 AWAVE_INIT_FUNC(xtrmhunt, xtrmhuntZipEntries, NAOMI_GAME_INPUT_LIGHTGUN)
 struct BurnDriver BurnDrvAwavextrmhunt = {
     "xtrmhunt", NULL, "awbios", NULL, "2004", "Extreme Hunting" "\0", NULL, "Sammy", "Atomiswave",
-    NULL, NULL, NULL, NULL, BDF_GAME_WORKING, 2, HARDWARE_MISC_POST90S, GBF_MISC, 0,
+    NULL, NULL, NULL, NULL, BDF_GAME_WORKING, 2, HARDWARE_SAMMY_ATOMISWAVE, GBF_MISC, 0,
     NULL, xtrmhuntRomInfo, xtrmhuntRomName, NULL, NULL, NULL, NULL, AwaveLightgunInputInfo, NULL,
     xtrmhuntInit, AwaveExitCommon, AwaveFrameCommon, AwaveDrawCommon, AwaveScanCommon, &AwaveRecalc,
     0x1000000, 640, 480, 4, 3
@@ -384,7 +385,7 @@ static NaomiZipEntry xtrmhnt2ZipEntries[] = {
 AWAVE_INIT_FUNC(xtrmhnt2, xtrmhnt2ZipEntries, NAOMI_GAME_INPUT_LIGHTGUN)
 struct BurnDriver BurnDrvAwavextrmhnt2 = {
     "xtrmhnt2", NULL, "awbios", NULL, "2006", "Extreme Hunting 2" "\0", NULL, "Sega", "Atomiswave",
-    NULL, NULL, NULL, NULL, BDF_GAME_WORKING, 2, HARDWARE_MISC_POST90S, GBF_MISC, 0,
+    NULL, NULL, NULL, NULL, BDF_GAME_WORKING, 2, HARDWARE_SAMMY_ATOMISWAVE, GBF_MISC, 0,
     NULL, xtrmhnt2RomInfo, xtrmhnt2RomName, NULL, NULL, NULL, NULL, AwaveLightgunInputInfo, NULL,
     xtrmhnt2Init, AwaveExitCommon, AwaveFrameCommon, AwaveDrawCommon, AwaveScanCommon, &AwaveRecalc,
     0x1000000, 640, 480, 4, 3
@@ -404,7 +405,7 @@ static NaomiZipEntry anmlbsktZipEntries[] = {
 AWAVE_INIT_FUNC(anmlbskt, anmlbsktZipEntries, NAOMI_GAME_INPUT_DIGITAL)
 struct BurnDriver BurnDrvAwaveanmlbskt = {
     "anmlbskt", NULL, "awbios", NULL, "2005", "Animal Basket / Hustle Tamaire Kyousou (24 Jan 2005)" "\0", NULL, "MOSS / Sammy", "Atomiswave",
-    NULL, NULL, NULL, NULL, BDF_GAME_WORKING, 2, HARDWARE_MISC_POST90S, GBF_MISC, 0,
+    NULL, NULL, NULL, NULL, BDF_GAME_WORKING, 2, HARDWARE_SAMMY_ATOMISWAVE, GBF_MISC, 0,
     NULL, anmlbsktRomInfo, anmlbsktRomName, NULL, NULL, NULL, NULL, Awave2PInputInfo, NULL,
     anmlbsktInit, AwaveExitCommon, AwaveFrameCommon, AwaveDrawCommon, AwaveScanCommon, &AwaveRecalc,
     0x1000000, 640, 480, 4, 3
@@ -423,7 +424,7 @@ static NaomiZipEntry blokpongZipEntries[] = {
 AWAVE_INIT_FUNC(blokpong, blokpongZipEntries, NAOMI_GAME_INPUT_BLOCKPONG)
 struct BurnDriver BurnDrvAwaveblokpong = {
     "blokpong", NULL, "awbios", NULL, "2004", "Block Pong-Pong" "\0", NULL, "MOSS / Sammy", "Atomiswave",
-    NULL, NULL, NULL, NULL, BDF_GAME_WORKING, 2, HARDWARE_MISC_POST90S, GBF_MISC, 0,
+    NULL, NULL, NULL, NULL, BDF_GAME_WORKING, 2, HARDWARE_SAMMY_ATOMISWAVE, GBF_MISC, 0,
     NULL, blokpongRomInfo, blokpongRomName, NULL, NULL, NULL, NULL, Awave2PInputInfo, NULL,
     blokpongInit, AwaveExitCommon, AwaveFrameCommon, AwaveDrawCommon, AwaveScanCommon, &AwaveRecalc,
     0x1000000, 640, 480, 4, 3
@@ -447,7 +448,7 @@ static NaomiZipEntry kov7sprtZipEntries[] = {
 AWAVE_INIT_FUNC(kov7sprt, kov7sprtZipEntries, NAOMI_GAME_INPUT_DIGITAL)
 struct BurnDriver BurnDrvAwavekov7sprt = {
     "kov7sprt", NULL, "awbios", NULL, "2003", "Knights of Valour - The Seven Spirits" "\0", NULL, "IGS / Sammy", "Atomiswave",
-    NULL, NULL, NULL, NULL, BDF_GAME_WORKING, 2, HARDWARE_MISC_POST90S, GBF_MISC, 0,
+    NULL, NULL, NULL, NULL, BDF_GAME_WORKING, 2, HARDWARE_SAMMY_ATOMISWAVE, GBF_MISC, 0,
     NULL, kov7sprtRomInfo, kov7sprtRomName, NULL, NULL, NULL, NULL, Awave2PInputInfo, NULL,
     kov7sprtInit, AwaveExitCommon, AwaveFrameCommon, AwaveDrawCommon, AwaveScanCommon, &AwaveRecalc,
     0x1000000, 640, 480, 4, 3
@@ -472,7 +473,7 @@ static NaomiZipEntry ggisukaZipEntries[] = {
 AWAVE_INIT_FUNC(ggisuka, ggisukaZipEntries, NAOMI_GAME_INPUT_DIGITAL)
 struct BurnDriver BurnDrvAwaveggisuka = {
     "ggisuka", NULL, "awbios", NULL, "2004", "Guilty Gear Isuka" "\0", NULL, "Arc System Works / Sammy", "Atomiswave",
-    NULL, NULL, NULL, NULL, BDF_GAME_WORKING, 4, HARDWARE_MISC_POST90S, GBF_MISC, 0,
+    NULL, NULL, NULL, NULL, BDF_GAME_WORKING, 4, HARDWARE_SAMMY_ATOMISWAVE, GBF_MISC, 0,
     NULL, ggisukaRomInfo, ggisukaRomName, NULL, NULL, NULL, NULL, Awave4PInputInfo, NULL,
     ggisukaInit, AwaveExitCommon, AwaveFrameCommon, AwaveDrawCommon, AwaveScanCommon, &AwaveRecalc,
     0x1000000, 640, 480, 4, 3
