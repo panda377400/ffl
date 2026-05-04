@@ -208,6 +208,11 @@ AS	= nasm
 
 LDFLAGS	= -static
 
+# Flycast initializes several VMEM/JIT structures from libretro init and the
+# default MinGW/PE stack can overflow there on Windows. Reserve a larger
+# process/thread default stack in the executable header.
+LDFLAGS += -Wl,--stack,67108864
+
 ifdef GCC345
 CFLAGS = -pipe \
 	   -std=gnu99 -march=$(CPUTYPE) -O1 -ffloat-store \
