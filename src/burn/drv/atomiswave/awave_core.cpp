@@ -1,5 +1,4 @@
 #include "awave_core.h"
-
 #include "awave_content.h"
 #include "awave_audio.h"
 #include "awave_video.h"
@@ -8,8 +7,7 @@
 
 #include <vector>
 #include <cstring>
-#include <cstdio>
-#include <stdarg.h>
+#include <cstdlib>
 
 static const NaomiGameConfig* g_cfg = NULL;
 static AwaveContentPackage g_content;
@@ -21,24 +19,9 @@ static void (*g_doneCurrent)(void*) = NULL;
 static void (*g_swapBuffers)(void*) = NULL;
 static bool g_useFallbackContext = false;
 
-static void AwaveDiagLog(const char* fmt, ...)
-{
-	FILE* f = fopen("awave_core_debug.log", "ab");
-	if (f) {
-		va_list ap;
-		va_start(ap, fmt);
-		vfprintf(f, fmt, ap);
-		va_end(ap);
-		fputc('\n', f);
-		fclose(f);
-	}
-}
-
 static void AwaveTrace(const TCHAR* msg)
 {
-	bprintf(0, _T("[AW] "));
-	bprintf(0, msg);
-	bprintf(0, _T("\n"));
+	bprintf(0, _T("[AW] %s\n"), msg);
 }
 
 static int ToFbfcPlatform(AwavePlatform p)
@@ -73,6 +56,7 @@ static void AwaveAudioCallback(const INT16* stereo, int frames, void* user)
 static void AwaveVideoCallback(const FbneoFlycastVideoFrame* frame, void* user)
 {
 	(void)user;
+
 	if (frame == NULL) return;
 
 	if (frame->valid_hw) {
@@ -90,8 +74,10 @@ static void FillInputState(FbneoFlycastInputState& out)
 
 	for (INT32 p = 0; p < 4; p++) {
 		out.pad[p] = AwaveInputGetPad(p);
+
 		for (INT32 a = 0; a < 8; a++) out.analog[p][a] = AwaveInputGetAnalog(p, a);
 		for (INT32 b = 0; b < 4; b++) out.analog_button[p][b] = AwaveInputGetAnalogButton(p, b);
+
 		AwaveInputGetLightgun(p, &out.gun_x[p], &out.gun_y[p], &out.gun_offscreen[p], &out.gun_reload[p]);
 	}
 }
@@ -99,9 +85,11 @@ static void FillInputState(FbneoFlycastInputState& out)
 static INT32 BuildFlycastGameInfo(std::vector<FbneoFlycastRomEntry>& roms, FbneoFlycastGameInfo& game)
 {
 	roms.clear();
+
 	if (g_cfg == NULL) return 1;
 
 	roms.reserve(g_content.entries.size());
+
 	for (size_t i = 0; i < g_content.entries.size(); i++) {
 		FbneoFlycastRomEntry r;
 		r.filename = g_content.entries[i].filename;
@@ -126,22 +114,21 @@ static INT32 BuildFlycastGameInfo(std::vector<FbneoFlycastRomEntry>& roms, Fbneo
 INT32 NaomiCoreInit(const NaomiGameConfig* config)
 {
 	AwaveTrace(_T("NaomiCoreInit enter"));
-	AwaveDiagLog("NaomiCoreInit enter");
 
 	NaomiCoreExit();
-	AwaveDiagLog("after NaomiCoreExit");
 
 	if (config == NULL) {
-		AwaveDiagLog("config == NULL");
+		bprintf(0, _T("atomiswave: NaomiCoreInit called with NULL config.\n"));
 		return 1;
 	}
 
 	g_cfg = config;
-	AwaveDiagLog("driver=%s zip=%s bios=%s system=%s platform=%d input=%u",
-		config->driverName ? config->driverName : "",
-		config->zipName ? config->zipName : "",
-		config->biosZipName ? config->biosZipName : "",
-		config->systemName ? config->systemName : "",
+
+	bprintf(0, _T("[AW] driver=%S zip=%S bios=%S system=%S platform=%d input=%u\n"),
+		config->driverName ? config->driverName : "(null)",
+		config->zipName ? config->zipName : "(null)",
+		config->biosZipName ? config->biosZipName : "(null)",
+		config->systemName ? config->systemName : "(null)",
 		(int)config->platform,
 		(unsigned)config->inputType);
 
@@ -154,6 +141,28 @@ INT32 NaomiCoreInit(const NaomiGameConfig* config)
 	AwaveTrace(_T("before AwaveInputResetRuntime"));
 	AwaveInputResetRuntime();
 
+	// Build and log the FBNeo ROM package before fbfc_init(). This makes the
+	// FBNeo progress bar and BurnLoadRom diagnostics visible even when the
+	// Flycast adapter fails during retro_init / HW-render setup.
+	AwaveTrace(_T("before AwaveBuildContentPackage"));
+	if (AwaveBuildContentPackage(config, g_content)) {
+		bprintf(0, _T("atomiswave: unable to build ROM package for %S\n"), config->driverName);
+		NaomiCoreExit();
+		return 1;
+	}
+	AwaveTrace(_T("after AwaveBuildContentPackage"));
+
+	std::vector<FbneoFlycastRomEntry> roms;
+	FbneoFlycastGameInfo game;
+
+	AwaveTrace(_T("before BuildFlycastGameInfo"));
+	if (BuildFlycastGameInfo(roms, game)) {
+		bprintf(0, _T("atomiswave: unable to build Flycast game info for %S\n"), config->driverName);
+		NaomiCoreExit();
+		return 1;
+	}
+	bprintf(0, _T("[AW] Flycast game info ready rom_count=%d\n"), game.rom_count);
+
 	FbneoFlycastCallbacks cb;
 	memset(&cb, 0, sizeof(cb));
 	cb.audio = AwaveAudioCallback;
@@ -161,57 +170,34 @@ INT32 NaomiCoreInit(const NaomiGameConfig* config)
 	cb.user = NULL;
 
 	AwaveTrace(_T("before fbfc_init"));
-	AwaveDiagLog("before fbfc_init");
 	if (!fbfc_init(&cb)) {
-		AwaveDiagLog("fbfc_init failed");
-		bprintf(0, _T("atomiswave: fbneo_flycast_api init failed. See awave_core_debug.log / fbfc_debug.log.\n"));
+		bprintf(0, _T("atomiswave: fbneo_flycast_api init failed.\n"));
+		bprintf(0, _T("atomiswave: check flycast_shim/fbfc_debug.log and HW render environment support.\n"));
+		NaomiCoreExit();
 		return 1;
 	}
 
-	AwaveTrace(_T("after fbfc_init"));
-	AwaveDiagLog("after fbfc_init");
 	g_coreInited = true;
-
-	AwaveTrace(_T("before AwaveBuildContentPackage"));
-	AwaveDiagLog("before AwaveBuildContentPackage");
-	if (AwaveBuildContentPackage(config, g_content)) {
-		AwaveDiagLog("AwaveBuildContentPackage failed");
-		bprintf(0, _T("atomiswave: unable to build ROM package. See awave_core_debug.log.\n"));
-		NaomiCoreExit();
-		return 1;
-	}
-	AwaveDiagLog("after AwaveBuildContentPackage entries=%u", (unsigned)g_content.entries.size());
-
-	std::vector<FbneoFlycastRomEntry> roms;
-	FbneoFlycastGameInfo game;
-
-	AwaveTrace(_T("before BuildFlycastGameInfo"));
-	if (BuildFlycastGameInfo(roms, game)) {
-		AwaveDiagLog("BuildFlycastGameInfo failed");
-		NaomiCoreExit();
-		return 1;
-	}
-	AwaveDiagLog("after BuildFlycastGameInfo rom_count=%d", game.rom_count);
+	AwaveTrace(_T("after fbfc_init"));
 
 	AwaveTrace(_T("before fbfc_load_game"));
-	AwaveDiagLog("before fbfc_load_game");
 	if (!fbfc_load_game(&game)) {
-		AwaveDiagLog("fbfc_load_game failed");
-		bprintf(0, _T("atomiswave: Flycast failed to load game. See fbneo_flycast_runtime/fbfc_debug.log.\n"));
+		bprintf(0, _T("atomiswave: Flycast failed to load %S. Check ROM package, BIOS staging, and adapter logs.\n"), config->driverName);
+		bprintf(0, _T("atomiswave: driver zip=%S bios=%S system=%S\n"),
+			config->zipName,
+			config->biosZipName ? config->biosZipName : "",
+			config->systemName ? config->systemName : "");
 		NaomiCoreExit();
 		return 1;
 	}
 
-	AwaveTrace(_T("after fbfc_load_game"));
-	AwaveDiagLog("after fbfc_load_game");
 	g_gameLoaded = true;
+	AwaveTrace(_T("after fbfc_load_game"));
 	return 0;
 }
 
 INT32 NaomiCoreExit()
 {
-	AwaveDiagLog("NaomiCoreExit enter gameLoaded=%d coreInited=%d", g_gameLoaded ? 1 : 0, g_coreInited ? 1 : 0);
-
 	if (g_gameLoaded) {
 		fbfc_unload_game();
 		g_gameLoaded = false;
@@ -235,7 +221,9 @@ INT32 NaomiCoreReset()
 	AwaveAudioReset();
 	AwaveVideoReset();
 	AwaveInputResetRuntime();
+
 	if (g_gameLoaded) fbfc_reset();
+
 	return 0;
 }
 
@@ -247,6 +235,7 @@ INT32 NaomiCoreFrame()
 
 	FbneoFlycastInputState input;
 	FillInputState(input);
+
 	const INT32 ret = fbfc_run_frame(&input) ? 0 : 1;
 
 	if (pBurnSoundOut && nBurnSoundLen > 0) {
@@ -254,6 +243,7 @@ INT32 NaomiCoreFrame()
 	}
 
 	if (g_doneCurrent) g_doneCurrent(g_oglContext);
+
 	return ret;
 }
 

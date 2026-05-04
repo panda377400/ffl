@@ -443,15 +443,7 @@ static struct BurnRomInfo kov7sprtRomDesc[] = {
 STD_ROM_PICK(kov7sprt)
 STD_ROM_FN(kov7sprt)
 static NaomiZipEntry kov7sprtZipEntries[] = {
-	ZIPENTRY("ax1301p01.ic18", 0),
-	ZIPENTRY("ax1301m01.ic11", 1),
-	ZIPENTRY("ax1301m02.ic12", 2),
-	ZIPENTRY("ax1301m03.ic13", 3),
-	ZIPENTRY("ax1301m04.ic14", 4),
-	ZIPENTRY("ax1301m05.ic15", 5),
-	ZIPENTRY("ax1301m06.ic16", 6),
-	ZIPENTRY("ax1301m07.ic17", 7),
-	ZIPEND
+    ZIPENTRY("ax1301p01.ic18", 3), ZIPENTRY("ax1301m01.ic11", 4), ZIPENTRY("ax1301m02.ic12", 5), ZIPENTRY("ax1301m03.ic13", 6), ZIPENTRY("ax1301m04.ic14", 7), ZIPENTRY("ax1301m05.ic15", 8), ZIPENTRY("ax1301m06.ic16", 9), ZIPENTRY("ax1301m07.ic17", 10), ZIPEND
 };
 AWAVE_INIT_FUNC(kov7sprt, kov7sprtZipEntries, NAOMI_GAME_INPUT_DIGITAL)
 struct BurnDriver BurnDrvAwavekov7sprt = {

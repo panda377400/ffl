@@ -207,6 +207,8 @@ LD	= $(CXX)
 AS	= nasm
 
 LDFLAGS	= -static
+
+
 
 # Flycast initializes several VMEM/JIT structures from libretro init and the
 # default MinGW/PE stack can overflow there on Windows. Reserve a larger

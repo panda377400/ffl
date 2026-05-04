@@ -1,0 +1,690 @@
+#include "fbneo_flycast_api.h"
+
+#include <stdint.h>
+#include <stddef.h>
+#include <stdio.h>
+#include <string.h>
+#include <stdarg.h>
+#include <errno.h>
+#include <string>
+#include <vector>
+
+#if defined(_WIN32)
+#include <direct.h>
+#define FBFC_MKDIR(path) _mkdir(path)
+#if defined(__MINGW32__) && !defined(FBNEO_FLYCAST_MINGW_STAT64I32_COMPAT)
+#define FBNEO_FLYCAST_MINGW_STAT64I32_COMPAT 1
+#include <sys/stat.h>
+extern "C" int stat64i32(const char* path, struct _stat64i32* st)
+{
+	return _stat64i32(path, st);
+}
+#endif
+#else
+#include <sys/stat.h>
+#include <sys/types.h>
+#define FBFC_MKDIR(path) mkdir(path, 0755)
+#endif
+
+#if defined(__has_include)
+# if __has_include("../../../../../vendor/flycast/core/deps/libretro-common/include/libretro.h")
+#  include "../../../../../vendor/flycast/core/deps/libretro-common/include/libretro.h"
+# elif __has_include("../../../../../vendor/flycast/core/libretro-common/include/libretro.h")
+#  include "../../../../../vendor/flycast/core/libretro-common/include/libretro.h"
+# elif __has_include(<libretro.h>)
+#  include <libretro.h>
+# else
+#  error "libretro.h not found. Add vendor/flycast/core/deps/libretro-common/include to the include path."
+# endif
+#else
+# include <libretro.h>
+#endif
+
+extern "C" {
+void flycast_retro_set_environment(retro_environment_t cb);
+void flycast_retro_set_video_refresh(retro_video_refresh_t cb);
+void flycast_retro_set_audio_sample(retro_audio_sample_t cb);
+void flycast_retro_set_audio_sample_batch(retro_audio_sample_batch_t cb);
+void flycast_retro_set_input_poll(retro_input_poll_t cb);
+void flycast_retro_set_input_state(retro_input_state_t cb);
+void flycast_retro_init(void);
+void flycast_retro_deinit(void);
+unsigned flycast_retro_api_version(void);
+void flycast_retro_get_system_info(struct retro_system_info* info);
+void flycast_retro_get_system_av_info(struct retro_system_av_info* info);
+void flycast_retro_set_controller_port_device(unsigned port, unsigned device);
+void flycast_retro_reset(void);
+void flycast_retro_run(void);
+size_t flycast_retro_serialize_size(void);
+bool flycast_retro_serialize(void* data, size_t size);
+bool flycast_retro_unserialize(const void* data, size_t size);
+bool flycast_retro_load_game(const struct retro_game_info* game);
+void flycast_retro_unload_game(void);
+}
+
+static FbneoFlycastCallbacks g_callbacks;
+static FbneoFlycastInputState g_input;
+static int g_inited = 0;
+static int g_loaded = 0;
+static int g_width = 640;
+static int g_height = 480;
+static int g_sample_rate = 44100;
+static double g_fps = 60.0;
+static std::string g_runtime_dir = "fbneo_flycast_runtime";
+static std::string g_system_dir = "fbneo_flycast_runtime/system";
+static std::string g_save_dir = "fbneo_flycast_runtime/save";
+static std::string g_content_dir = "fbneo_flycast_runtime/content";
+static std::string g_game_zip_path;
+static enum retro_pixel_format g_pixel_format = RETRO_PIXEL_FORMAT_XRGB8888;
+
+static void make_dir_quiet(const std::string& path)
+{
+	if (path.empty()) return;
+	FBFC_MKDIR(path.c_str());
+}
+
+static void ensure_runtime_dirs(void)
+{
+	make_dir_quiet(g_runtime_dir);
+	make_dir_quiet(g_system_dir);
+	make_dir_quiet(g_system_dir + "/dc");
+	make_dir_quiet(g_save_dir);
+	make_dir_quiet(g_content_dir);
+}
+
+static void reset_debug_log(void)
+{
+	ensure_runtime_dirs();
+	FILE* f = fopen("fbneo_flycast_runtime/fbfc_debug.log", "wb");
+	if (f) {
+		fputs("fbneo/flycast debug log\n", f);
+		fclose(f);
+	}
+}
+
+static void fbfc_log(const char* fmt, ...)
+{
+	va_list ap;
+
+	fprintf(stderr, "atomiswave/flycast: ");
+	va_start(ap, fmt);
+	vfprintf(stderr, fmt, ap);
+	va_end(ap);
+	fprintf(stderr, "\n");
+	fflush(stderr);
+
+	FILE* f = fopen("fbneo_flycast_runtime/fbfc_debug.log", "ab");
+	if (!f) f = fopen("fbfc_debug.log", "ab");
+	if (f) {
+		fprintf(f, "atomiswave/flycast: ");
+		va_start(ap, fmt);
+		vfprintf(f, fmt, ap);
+		va_end(ap);
+		fputc('\n', f);
+		fclose(f);
+	}
+}
+
+static uint32_t crc32_update(uint32_t crc, const uint8_t* data, size_t size)
+{
+	crc = ~crc;
+	for (size_t i = 0; i < size; i++) {
+		crc ^= data[i];
+		for (int bit = 0; bit < 8; bit++) {
+			const uint32_t mask = -(int32_t)(crc & 1u);
+			crc = (crc >> 1) ^ (0xEDB88320u & mask);
+		}
+	}
+	return ~crc;
+}
+
+static void wr16(FILE* f, uint16_t v)
+{
+	fputc((int)(v & 0xff), f);
+	fputc((int)((v >> 8) & 0xff), f);
+}
+
+static void wr32(FILE* f, uint32_t v)
+{
+	wr16(f, (uint16_t)(v & 0xffff));
+	wr16(f, (uint16_t)((v >> 16) & 0xffff));
+}
+
+struct ZipCentralEntry {
+	std::string name;
+	uint32_t crc;
+	uint32_t size;
+	uint32_t local_offset;
+};
+
+static bool write_store_zip(const char* path, const FbneoFlycastRomEntry* roms, int rom_count)
+{
+	FILE* f = fopen(path, "wb");
+	if (!f) {
+		fbfc_log("failed to create temporary content zip: %s errno=%d", path ? path : "", errno);
+		return false;
+	}
+
+	std::vector<ZipCentralEntry> central;
+	central.reserve((size_t)rom_count);
+
+	for (int i = 0; i < rom_count; i++) {
+		const FbneoFlycastRomEntry& r = roms[i];
+		fbfc_log("rom[%d] name=%s size=%u data=%p", i, r.filename ? r.filename : "", (unsigned)r.size, (const void*)r.data);
+		if (!r.filename || !r.filename[0] || !r.data || r.size == 0) {
+			fbfc_log("skip invalid rom[%d]", i);
+			continue;
+		}
+		if (r.size > 0xffffffffu) {
+			fbfc_log("rom too large for simple zip writer: %s", r.filename);
+			fclose(f);
+			return false;
+		}
+
+		ZipCentralEntry ze;
+		ze.name = r.filename;
+		ze.crc = crc32_update(0, r.data, r.size);
+		ze.size = (uint32_t)r.size;
+		ze.local_offset = (uint32_t)ftell(f);
+
+		wr32(f, 0x04034b50u);
+		wr16(f, 20);
+		wr16(f, 0);
+		wr16(f, 0);
+		wr16(f, 0);
+		wr16(f, 0);
+		wr32(f, ze.crc);
+		wr32(f, ze.size);
+		wr32(f, ze.size);
+		wr16(f, (uint16_t)ze.name.size());
+		wr16(f, 0);
+		fwrite(ze.name.data(), 1, ze.name.size(), f);
+		fwrite(r.data, 1, r.size, f);
+		central.push_back(ze);
+	}
+
+	if (central.empty()) {
+		fbfc_log("content zip would be empty");
+		fclose(f);
+		return false;
+	}
+
+	const uint32_t central_offset = (uint32_t)ftell(f);
+	for (size_t i = 0; i < central.size(); i++) {
+		const ZipCentralEntry& ze = central[i];
+		wr32(f, 0x02014b50u);
+		wr16(f, 20);
+		wr16(f, 20);
+		wr16(f, 0);
+		wr16(f, 0);
+		wr16(f, 0);
+		wr16(f, 0);
+		wr32(f, ze.crc);
+		wr32(f, ze.size);
+		wr32(f, ze.size);
+		wr16(f, (uint16_t)ze.name.size());
+		wr16(f, 0);
+		wr16(f, 0);
+		wr16(f, 0);
+		wr16(f, 0);
+		wr32(f, 0);
+		wr32(f, ze.local_offset);
+		fwrite(ze.name.data(), 1, ze.name.size(), f);
+	}
+
+	const uint32_t central_size = (uint32_t)ftell(f) - central_offset;
+	wr32(f, 0x06054b50u);
+	wr16(f, 0);
+	wr16(f, 0);
+	wr16(f, (uint16_t)central.size());
+	wr16(f, (uint16_t)central.size());
+	wr32(f, central_size);
+	wr32(f, central_offset);
+	wr16(f, 0);
+
+	const int close_ret = fclose(f);
+	fbfc_log("wrote content zip: %s files=%u close=%d", path ? path : "", (unsigned)central.size(), close_ret);
+	return close_ret == 0;
+}
+
+static bool copy_file_if_exists(const char* src, const char* dst)
+{
+	FILE* in = fopen(src, "rb");
+	if (!in) return false;
+
+	FILE* out = fopen(dst, "wb");
+	if (!out) {
+		fclose(in);
+		return false;
+	}
+
+	char buf[16384];
+	size_t n;
+	while ((n = fread(buf, 1, sizeof(buf), in)) > 0) {
+		fwrite(buf, 1, n, out);
+	}
+	fclose(in);
+	fclose(out);
+	fbfc_log("staged bios: %s -> %s", src, dst);
+	return true;
+}
+
+static void stage_bios_files(const FbneoFlycastGameInfo* game)
+{
+	ensure_runtime_dirs();
+
+	const char* bios = (game && game->bios_zip_name && game->bios_zip_name[0]) ? game->bios_zip_name : "awbios.zip";
+	std::string src1 = std::string("roms/") + bios;
+	std::string src2 = std::string("roms/dc/") + bios;
+	std::string dst1 = g_system_dir + "/" + bios;
+	std::string dst2 = g_system_dir + "/dc/" + bios;
+
+	copy_file_if_exists(src1.c_str(), dst1.c_str());
+	copy_file_if_exists(src1.c_str(), dst2.c_str());
+	copy_file_if_exists(src2.c_str(), dst1.c_str());
+	copy_file_if_exists(src2.c_str(), dst2.c_str());
+
+	copy_file_if_exists("roms/awbios.zip", "fbneo_flycast_runtime/system/awbios.zip");
+	copy_file_if_exists("roms/awbios.zip", "fbneo_flycast_runtime/system/dc/awbios.zip");
+	copy_file_if_exists("roms/naomi.zip", "fbneo_flycast_runtime/system/naomi.zip");
+	copy_file_if_exists("roms/naomi.zip", "fbneo_flycast_runtime/system/dc/naomi.zip");
+	copy_file_if_exists("roms/dc/awbios.zip", "fbneo_flycast_runtime/system/awbios.zip");
+	copy_file_if_exists("roms/dc/awbios.zip", "fbneo_flycast_runtime/system/dc/awbios.zip");
+	copy_file_if_exists("roms/dc/naomi.zip", "fbneo_flycast_runtime/system/naomi.zip");
+	copy_file_if_exists("roms/dc/naomi.zip", "fbneo_flycast_runtime/system/dc/naomi.zip");
+}
+
+static void lr_video_cb(const void* data, unsigned width, unsigned height, size_t pitch)
+{
+#ifdef RETRO_HW_FRAME_BUFFER_VALID
+	if (!g_callbacks.video || !data || data == RETRO_HW_FRAME_BUFFER_VALID) return;
+#else
+	if (!g_callbacks.video || !data) return;
+#endif
+
+	FbneoFlycastVideoFrame frame;
+	memset(&frame, 0, sizeof(frame));
+	frame.pixels = data;
+	frame.width = (int)width;
+	frame.height = (int)height;
+	frame.pitch_bytes = (int)pitch;
+	frame.valid_cpu = 1;
+	frame.valid_hw = 0;
+	g_callbacks.video(&frame, g_callbacks.user);
+}
+
+static void lr_audio_cb(int16_t left, int16_t right)
+{
+	int16_t sample[2] = { left, right };
+	if (g_callbacks.audio) g_callbacks.audio(sample, 1, g_callbacks.user);
+}
+
+static size_t lr_audio_batch_cb(const int16_t* data, size_t frames)
+{
+	if (g_callbacks.audio && data && frames > 0) {
+		g_callbacks.audio(data, (int)frames, g_callbacks.user);
+	}
+	return frames;
+}
+
+static void lr_input_poll_cb(void)
+{
+}
+
+static int16_t joypad_state(unsigned port, unsigned id)
+{
+	if (port >= 4 || id >= 32) return 0;
+	return (g_input.pad[port] & (1u << id)) ? 1 : 0;
+}
+
+static int16_t lr_input_state_cb(unsigned port, unsigned device, unsigned index, unsigned id)
+{
+	if (port >= 4) return 0;
+	if (device == RETRO_DEVICE_JOYPAD) return joypad_state(port, id);
+	if (device == RETRO_DEVICE_ANALOG) {
+		unsigned axis = index * 2 + id;
+		if (axis < 8) return g_input.analog[port][axis];
+		return 0;
+	}
+	if (device == RETRO_DEVICE_LIGHTGUN) {
+		if (id == RETRO_DEVICE_ID_LIGHTGUN_SCREEN_X) return g_input.gun_x[port];
+		if (id == RETRO_DEVICE_ID_LIGHTGUN_SCREEN_Y) return g_input.gun_y[port];
+		if (id == RETRO_DEVICE_ID_LIGHTGUN_IS_OFFSCREEN) return g_input.gun_offscreen[port] ? 1 : 0;
+		if (id == RETRO_DEVICE_ID_LIGHTGUN_RELOAD) return g_input.gun_reload[port] ? 1 : 0;
+		return joypad_state(port, id);
+	}
+	return 0;
+}
+
+static void lr_log_cb(enum retro_log_level level, const char* fmt, ...)
+{
+	(void)level;
+	va_list ap;
+
+	FILE* f = fopen("fbneo_flycast_runtime/fbfc_debug.log", "ab");
+	if (!f) f = fopen("fbfc_debug.log", "ab");
+	if (f) {
+		fprintf(f, "flycast: ");
+		va_start(ap, fmt);
+		vfprintf(f, fmt, ap);
+		va_end(ap);
+		fclose(f);
+	}
+
+	fprintf(stderr, "flycast: ");
+	va_start(ap, fmt);
+	vfprintf(stderr, fmt, ap);
+	va_end(ap);
+	fflush(stderr);
+}
+
+static void update_av_info(const struct retro_system_av_info* av)
+{
+	if (!av) return;
+	if (av->geometry.base_width) g_width = (int)av->geometry.base_width;
+	if (av->geometry.base_height) g_height = (int)av->geometry.base_height;
+	if (av->timing.sample_rate) g_sample_rate = (int)av->timing.sample_rate;
+	if (av->timing.fps) g_fps = av->timing.fps;
+	fbfc_log("av info: %dx%d sample_rate=%d fps=%.6f", g_width, g_height, g_sample_rate, g_fps);
+}
+
+static bool lr_environment_cb(unsigned cmd, void* data)
+{
+	switch (cmd) {
+	case RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY:
+		*(const char**)data = g_system_dir.c_str();
+		return true;
+	case RETRO_ENVIRONMENT_GET_SAVE_DIRECTORY:
+		*(const char**)data = g_save_dir.c_str();
+		return true;
+/*
+	 * Some libretro.h versions define RETRO_ENVIRONMENT_GET_CONTENT_DIRECTORY
+	 * and RETRO_ENVIRONMENT_GET_CORE_ASSETS_DIRECTORY to the same command value.
+	 * Keep only one switch case, otherwise MinGW reports "duplicate case value".
+	 */
+#ifdef RETRO_ENVIRONMENT_GET_CONTENT_DIRECTORY
+	case RETRO_ENVIRONMENT_GET_CONTENT_DIRECTORY:
+		*(const char**)data = g_content_dir.c_str();
+		return true;
+#elif defined(RETRO_ENVIRONMENT_GET_CORE_ASSETS_DIRECTORY)
+	case RETRO_ENVIRONMENT_GET_CORE_ASSETS_DIRECTORY:
+		*(const char**)data = g_content_dir.c_str();
+		return true;
+#endif
+#ifdef RETRO_ENVIRONMENT_GET_LIBRETRO_PATH
+	case RETRO_ENVIRONMENT_GET_LIBRETRO_PATH:
+		*(const char**)data = "fbneo_flycast_static";
+		return true;
+#endif
+	case RETRO_ENVIRONMENT_SET_PIXEL_FORMAT:
+		if (data) {
+			g_pixel_format = *(enum retro_pixel_format*)data;
+			fbfc_log("pixel format requested: %d", (int)g_pixel_format);
+		}
+		return true;
+	case RETRO_ENVIRONMENT_SET_GEOMETRY:
+		if (data) {
+			const struct retro_game_geometry* geo = (const struct retro_game_geometry*)data;
+			if (geo->base_width) g_width = (int)geo->base_width;
+			if (geo->base_height) g_height = (int)geo->base_height;
+			fbfc_log("geometry set: %dx%d", g_width, g_height);
+		}
+		return true;
+	case RETRO_ENVIRONMENT_SET_SYSTEM_AV_INFO:
+		update_av_info((const struct retro_system_av_info*)data);
+		return true;
+	case RETRO_ENVIRONMENT_SET_SUPPORT_NO_GAME:
+	case RETRO_ENVIRONMENT_SET_CONTROLLER_INFO:
+	case RETRO_ENVIRONMENT_SET_INPUT_DESCRIPTORS:
+	case RETRO_ENVIRONMENT_SET_VARIABLES:
+	case RETRO_ENVIRONMENT_SET_MESSAGE:
+		return true;
+#ifdef RETRO_ENVIRONMENT_SET_CORE_OPTIONS
+	case RETRO_ENVIRONMENT_SET_CORE_OPTIONS:
+		return true;
+#endif
+#ifdef RETRO_ENVIRONMENT_SET_CORE_OPTIONS_INTL
+	case RETRO_ENVIRONMENT_SET_CORE_OPTIONS_INTL:
+		return true;
+#endif
+#ifdef RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2
+	case RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2:
+		return true;
+#endif
+#ifdef RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2_INTL
+	case RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2_INTL:
+		return true;
+#endif
+#ifdef RETRO_ENVIRONMENT_SET_CORE_OPTIONS_UPDATE_DISPLAY_CALLBACK
+	case RETRO_ENVIRONMENT_SET_CORE_OPTIONS_UPDATE_DISPLAY_CALLBACK:
+		return true;
+#endif
+#ifdef RETRO_ENVIRONMENT_GET_CORE_OPTIONS_VERSION
+	case RETRO_ENVIRONMENT_GET_CORE_OPTIONS_VERSION:
+		*(unsigned*)data = 2;
+		return true;
+#endif
+	case RETRO_ENVIRONMENT_GET_VARIABLE:
+		if (data) {
+			struct retro_variable* var = (struct retro_variable*)data;
+			fbfc_log("get variable: %s", var->key ? var->key : "");
+			var->value = NULL;
+		}
+		return false;
+	case RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE:
+		*(bool*)data = false;
+		return true;
+	case RETRO_ENVIRONMENT_GET_CAN_DUPE:
+		*(bool*)data = true;
+		return true;
+	case RETRO_ENVIRONMENT_GET_LOG_INTERFACE:
+		if (data) {
+			struct retro_log_callback* log = (struct retro_log_callback*)data;
+			log->log = lr_log_cb;
+			return true;
+		}
+		return false;
+#ifdef RETRO_ENVIRONMENT_GET_OVERSCAN
+	case RETRO_ENVIRONMENT_GET_OVERSCAN:
+		*(bool*)data = false;
+		return true;
+#endif
+#ifdef RETRO_ENVIRONMENT_SET_HW_RENDER
+	case RETRO_ENVIRONMENT_SET_HW_RENDER:
+		fbfc_log("core requested HW render; this adapter does not expose libretro HW render yet");
+		return false;
+#endif
+#ifdef RETRO_ENVIRONMENT_SET_FRAME_TIME_CALLBACK
+	case RETRO_ENVIRONMENT_SET_FRAME_TIME_CALLBACK:
+		return true;
+#endif
+#ifdef RETRO_ENVIRONMENT_SET_AUDIO_CALLBACK
+	case RETRO_ENVIRONMENT_SET_AUDIO_CALLBACK:
+		return false;
+#endif
+#ifdef RETRO_ENVIRONMENT_SET_PERFORMANCE_LEVEL
+	case RETRO_ENVIRONMENT_SET_PERFORMANCE_LEVEL:
+		return true;
+#endif
+#ifdef RETRO_ENVIRONMENT_SET_SERIALIZATION_QUIRKS
+	case RETRO_ENVIRONMENT_SET_SERIALIZATION_QUIRKS:
+		return true;
+#endif
+#ifdef RETRO_ENVIRONMENT_GET_TARGET_REFRESH_RATE
+	case RETRO_ENVIRONMENT_GET_TARGET_REFRESH_RATE:
+		*(float*)data = 60.0f;
+		return true;
+#endif
+#ifdef RETRO_ENVIRONMENT_GET_AUDIO_VIDEO_ENABLE
+	case RETRO_ENVIRONMENT_GET_AUDIO_VIDEO_ENABLE:
+		*(int*)data = 3;
+		return true;
+#endif
+#ifdef RETRO_ENVIRONMENT_GET_LANGUAGE
+	case RETRO_ENVIRONMENT_GET_LANGUAGE:
+#ifdef RETRO_LANGUAGE_ENGLISH
+		*(unsigned*)data = RETRO_LANGUAGE_ENGLISH;
+#else
+		*(unsigned*)data = 0;
+#endif
+		return true;
+#endif
+	default:
+		fbfc_log("unhandled environment cmd: %u", cmd);
+		return false;
+	}
+}
+
+int fbfc_init(const FbneoFlycastCallbacks* callbacks)
+{
+	if (g_inited) fbfc_shutdown();
+
+	reset_debug_log();
+	fbfc_log("fbfc_init enter");
+
+	memset(&g_callbacks, 0, sizeof(g_callbacks));
+	memset(&g_input, 0, sizeof(g_input));
+	if (callbacks) g_callbacks = *callbacks;
+
+	ensure_runtime_dirs();
+
+	fbfc_log("setting libretro callbacks");
+	flycast_retro_set_environment(lr_environment_cb);
+	flycast_retro_set_video_refresh(lr_video_cb);
+	flycast_retro_set_audio_sample(lr_audio_cb);
+	flycast_retro_set_audio_sample_batch(lr_audio_batch_cb);
+	flycast_retro_set_input_poll(lr_input_poll_cb);
+	flycast_retro_set_input_state(lr_input_state_cb);
+
+	fbfc_log("before flycast_retro_init api=%u", flycast_retro_api_version());
+	flycast_retro_init();
+	fbfc_log("after flycast_retro_init");
+
+	struct retro_system_info info;
+	memset(&info, 0, sizeof(info));
+	flycast_retro_get_system_info(&info);
+	fbfc_log("core info library=%s version=%s valid_ext=%s need_fullpath=%d block_extract=%d",
+		info.library_name ? info.library_name : "",
+		info.library_version ? info.library_version : "",
+		info.valid_extensions ? info.valid_extensions : "",
+		info.need_fullpath ? 1 : 0,
+		info.block_extract ? 1 : 0);
+
+	g_inited = 1;
+	g_loaded = 0;
+	return 1;
+}
+
+void fbfc_shutdown(void)
+{
+	fbfc_log("fbfc_shutdown enter loaded=%d inited=%d", g_loaded, g_inited);
+	if (g_loaded) flycast_retro_unload_game();
+	if (g_inited) flycast_retro_deinit();
+	g_loaded = 0;
+	g_inited = 0;
+	memset(&g_callbacks, 0, sizeof(g_callbacks));
+}
+
+int fbfc_load_game(const FbneoFlycastGameInfo* game)
+{
+	fbfc_log("fbfc_load_game enter inited=%d game=%p", g_inited, (const void*)game);
+	if (!g_inited) return 0;
+	if (!game) return 0;
+	if (!game->roms || game->rom_count <= 0) {
+		fbfc_log("no rom entries supplied");
+		return 0;
+	}
+
+	fbfc_log("game driver=%s zip=%s bios=%s system=%s platform=%d input=%d rom_count=%d",
+		game->driver_name ? game->driver_name : "",
+		game->zip_name ? game->zip_name : "",
+		game->bios_zip_name ? game->bios_zip_name : "",
+		game->system_name ? game->system_name : "",
+		game->platform,
+		game->input_type,
+		game->rom_count);
+
+	stage_bios_files(game);
+
+	std::string zip_name;
+	if (game->zip_name && game->zip_name[0]) zip_name = game->zip_name;
+	if (zip_name.empty()) {
+		zip_name = (game->driver_name && game->driver_name[0]) ? game->driver_name : "fbneo_flycast_game";
+		if (zip_name.find('.') == std::string::npos) zip_name += ".zip";
+	}
+	g_game_zip_path = g_content_dir + "/" + zip_name;
+
+	if (!write_store_zip(g_game_zip_path.c_str(), game->roms, game->rom_count)) {
+		fbfc_log("failed to build content zip for %s", game->driver_name ? game->driver_name : "");
+		return 0;
+	}
+
+	struct retro_game_info gi;
+	memset(&gi, 0, sizeof(gi));
+	gi.path = g_game_zip_path.c_str();
+	gi.data = NULL;
+	gi.size = 0;
+	gi.meta = NULL;
+
+	fbfc_log("before flycast_retro_load_game path=%s", gi.path ? gi.path : "");
+	if (!flycast_retro_load_game(&gi)) {
+		fbfc_log("flycast_retro_load_game returned false: %s", g_game_zip_path.c_str());
+		g_loaded = 0;
+		return 0;
+	}
+	fbfc_log("after flycast_retro_load_game");
+
+	struct retro_system_av_info av;
+	memset(&av, 0, sizeof(av));
+	flycast_retro_get_system_av_info(&av);
+	update_av_info(&av);
+
+	g_loaded = 1;
+	return 1;
+}
+
+void fbfc_unload_game(void)
+{
+	fbfc_log("fbfc_unload_game loaded=%d", g_loaded);
+	if (g_loaded) flycast_retro_unload_game();
+	g_loaded = 0;
+}
+
+void fbfc_reset(void)
+{
+	if (g_loaded) flycast_retro_reset();
+}
+
+int fbfc_run_frame(const FbneoFlycastInputState* input)
+{
+	if (!g_loaded) return 0;
+	if (input) g_input = *input;
+	flycast_retro_run();
+	return 1;
+}
+
+int fbfc_serialize_size(void)
+{
+	return g_loaded ? (int)flycast_retro_serialize_size() : 0;
+}
+
+int fbfc_serialize(void* data, int size)
+{
+	if (!g_loaded || !data || size <= 0) return 0;
+	return flycast_retro_serialize(data, (size_t)size) ? 1 : 0;
+}
+
+int fbfc_unserialize(const void* data, int size)
+{
+	if (!g_loaded || !data || size <= 0) return 0;
+	return flycast_retro_unserialize(data, (size_t)size) ? 1 : 0;
+}
+
+int fbfc_get_av_info(int* width, int* height, int* sample_rate, double* fps)
+{
+	if (width) *width = g_width;
+	if (height) *height = g_height;
+	if (sample_rate) *sample_rate = g_sample_rate;
+	if (fps) *fps = g_fps;
+	return 1;
+}
