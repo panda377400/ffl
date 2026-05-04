@@ -124,6 +124,8 @@ endif
 # defined in vendor/flycast/build_fbneo_static/libflycast_fbneo_all.a when
 # Flycast is built with FBNEO_STATIC_LIBRETRO=ON. Keep this before the Win32
 # system libraries below so Flycast's own unresolved imports can resolve there.
+# Flycast/ASIO/miniupnpc also needs mswsock (AcceptEx/GetAcceptExSockaddrs)
+# and iphlpapi (GetBestInterface/GetAdaptersAddresses) on MinGW/Windows.
 FLYCAST_FBNEO_LIB = vendor/flycast/build_fbneo_static/libflycast_fbneo_all.a
 ifneq ($(wildcard $(FLYCAST_FBNEO_LIB)),)
 lib += -Wl,--start-group $(FLYCAST_FBNEO_LIB) -Wl,--end-group
@@ -131,7 +133,7 @@ else
 $(warning $(FLYCAST_FBNEO_LIB) not found; rebuild vendor/flycast with FBNEO_STATIC_LIBRETRO=ON before linking Atomiswave/NAOMI Flycast bridge)
 endif
 
-lib	+=	-luser32 -lgdi32 -lcomdlg32 -lcomctl32 -lshell32 -lwinmm -lshlwapi -ladvapi32 -lsetupapi -lole32 -luuid -lwininet -lws2_32 -lopengl32
+lib	+=	-luser32 -lgdi32 -lcomdlg32 -lcomctl32 -lshell32 -lwinmm -lshlwapi -ladvapi32 -lsetupapi -lole32 -luuid -lwininet -lws2_32 -lmswsock -liphlpapi -lopengl32
 
 ifdef INCLUDE_AVI_RECORDING
 lib +=	-lvfw32
