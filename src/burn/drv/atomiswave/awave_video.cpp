@@ -34,8 +34,14 @@ void AwaveVideoSetCpuFrame(const void* pixels, INT32 width, INT32 height, INT32 
 	g_frame.resize((size_t)width * height);
 
 	const UINT8* src = (const UINT8*)pixels;
-	for (INT32 y = 0; y < height; y++) {
-		memcpy(&g_frame[(size_t)y * width], src + y * pitchBytes, (size_t)width * sizeof(UINT32));
+	const INT32 tightPitch = width * (INT32)sizeof(UINT32);
+
+	if (pitchBytes == tightPitch) {
+		memcpy(g_frame.data(), src, (size_t)height * (size_t)tightPitch);
+	} else {
+		for (INT32 y = 0; y < height; y++) {
+			memcpy(&g_frame[(size_t)y * width], src + y * pitchBytes, (size_t)width * sizeof(UINT32));
+		}
 	}
 
 	g_validCpu = 1;
@@ -73,8 +79,14 @@ INT32 AwaveVideoDrawCpu()
 	}
 
 	if (nBurnBpp == 4) {
-		for (INT32 y = 0; y < g_h; y++) {
-			memcpy((UINT8*)pBurnDraw + y * nBurnPitch, &g_frame[(size_t)y * g_w], (size_t)g_w * sizeof(UINT32));
+		const INT32 tightPitch = g_w * (INT32)sizeof(UINT32);
+
+		if (nBurnPitch == tightPitch) {
+			memcpy(pBurnDraw, g_frame.data(), (size_t)g_h * (size_t)tightPitch);
+		} else {
+			for (INT32 y = 0; y < g_h; y++) {
+				memcpy((UINT8*)pBurnDraw + y * nBurnPitch, &g_frame[(size_t)y * g_w], (size_t)g_w * sizeof(UINT32));
+			}
 		}
 
 		if (((++g_draw_cpu_count) & 0x3f) == 0) {

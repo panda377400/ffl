@@ -19,6 +19,12 @@
 #include <windows.h>
 #include <direct.h>
 #include <GL/gl.h>
+#ifndef GL_BGRA
+#define GL_BGRA 0x80E1
+#endif
+#ifndef GL_UNSIGNED_INT_8_8_8_8_REV
+#define GL_UNSIGNED_INT_8_8_8_8_REV 0x8367
+#endif
 #define FBFC_MKDIR(path) _mkdir(path)
 #if defined(__MINGW32__) && !defined(FBNEO_FLYCAST_MINGW_STAT64I32_COMPAT)
 #define FBNEO_FLYCAST_MINGW_STAT64I32_COMPAT 1
@@ -100,6 +106,7 @@ static int g_hw_ready = 0;
 static int g_hw_reset_called = 0;
 static struct retro_hw_render_callback g_hw_cb;
 static std::vector<uint32_t> g_hw_readback;
+static std::vector<uint32_t> g_hw_readback_staging;
 
 static LRESULT CALLBACK fbfc_hw_wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 {
@@ -235,6 +242,7 @@ static void fbfc_hw_destroy(void)
     g_hw_reset_called = 0;
     memset(&g_hw_cb, 0, sizeof(g_hw_cb));
     g_hw_readback.clear();
+    g_hw_readback_staging.clear();
     if (g_hw_hglrc) {
         wglMakeCurrent(NULL, NULL);
         wglDeleteContext(g_hw_hglrc);
@@ -490,25 +498,22 @@ static void lr_video_cb(const void* data, unsigned width, unsigned height, size_
         int w = width ? (int)width : g_width;
         int h = height ? (int)height : g_height;
         if (w <= 0 || h <= 0 || w > 8192 || h > 8192) return;
-        std::vector<unsigned char> rgba((size_t)w * (size_t)h * 4u);
-        g_hw_readback.resize((size_t)w * (size_t)h);
-        glPixelStorei(GL_PACK_ALIGNMENT, 1);
+        const size_t pixel_count = (size_t)w * (size_t)h;
+        const size_t row_bytes = (size_t)w * sizeof(uint32_t);
+        g_hw_readback_staging.resize(pixel_count);
+        g_hw_readback.resize(pixel_count);
+        glPixelStorei(GL_PACK_ALIGNMENT, 4);
         glReadBuffer(GL_BACK);
-        glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, rgba.data());
+        glReadPixels(0, 0, w, h, GL_BGRA, GL_UNSIGNED_INT_8_8_8_8_REV, g_hw_readback_staging.data());
         GLenum err = glGetError();
         if (err != GL_NO_ERROR) {
-            fbfc_log("WGL: glReadPixels GL_RGBA failed err=0x%04x", (unsigned)err);
+            fbfc_log("WGL: glReadPixels GL_BGRA failed err=0x%04x", (unsigned)err);
             return;
         }
         for (int y = 0; y < h; y++) {
-            const unsigned char* src = &rgba[(size_t)(h - 1 - y) * (size_t)w * 4u];
-            uint32_t* dst = &g_hw_readback[(size_t)y * (size_t)w];
-            for (int x = 0; x < w; x++) {
-                unsigned r = src[x * 4 + 0];
-                unsigned g = src[x * 4 + 1];
-                unsigned b = src[x * 4 + 2];
-                dst[x] = 0xff000000u | (r << 16) | (g << 8) | b;
-            }
+            const uint8_t* src = (const uint8_t*)g_hw_readback_staging.data() + (size_t)(h - 1 - y) * row_bytes;
+            uint8_t* dst = (uint8_t*)g_hw_readback.data() + (size_t)y * row_bytes;
+            memcpy(dst, src, row_bytes);
         }
         FbneoFlycastVideoFrame frame;
         memset(&frame, 0, sizeof(frame));

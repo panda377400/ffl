@@ -54,7 +54,7 @@
 #include <cstdio>
 #include <cstdarg>
 
-// FBNeo safe build: SH4 dynarec is intentionally disabled because this port crashes in recompiler->Init().
+// FBNeo stable fallback build: keep SH4 dynarec disabled in the embedded port because recompiler->Init() currently crashes in-process.
 // FBNeo/Flycast port diagnostic breadcrumbs.
 // Writes directly to the same runtime log as the FBNeo shim, independent of libretro log_cb.
 static void fbneo_emulator_diag(const char* fmt, ...)
@@ -555,15 +555,14 @@ void Emulator::init()
 	fbneo_emulator_diag("Emulator::init after reios_init");
 
 
-	// FBNeo port diagnostic fallback:
-	// In the embedded MinGW/FBNeo path the SH4 x64 recompiler can crash or hang
-	// inside recompiler->Init().  Force interpreter mode so retro_init() can
-	// complete and game loading remains stable while the renderer/frontend is
-	// still CPU-readback based.
+	// FBNeo stable fallback:
+	// The embedded FBNeo/Flycast port still crashes inside SH4 dynarec
+	// recompiler->Init(). Keep dynarec disabled here so init/load/switch-game
+	// remains stable while dynarec is debugged separately.
 #if FEAT_SHREC != DYNAREC_NONE
-	fbneo_emulator_diag("Emulator::init FBNEO_FORCE_INTERPRETER: DynarecEnabled before override=%d", config::DynarecEnabled ? 1 : 0);
+	fbneo_emulator_diag("Emulator::init FBNEO_STABLE_FALLBACK: DynarecEnabled before override=%d", config::DynarecEnabled ? 1 : 0);
 	config::DynarecEnabled.override(false);
-	fbneo_emulator_diag("Emulator::init FBNEO_FORCE_INTERPRETER: skipping Get_Sh4Recompiler/recompiler->Init DynarecEnabled=%d", config::DynarecEnabled ? 1 : 0);
+	fbneo_emulator_diag("Emulator::init FBNEO_STABLE_FALLBACK: skipping Get_Sh4Recompiler/recompiler->Init DynarecEnabled=%d", config::DynarecEnabled ? 1 : 0);
 #endif
 
 	INFO_LOG(INTERPRETER, "Using Interpreter");
@@ -583,7 +582,7 @@ Sh4Executor *Emulator::getSh4Executor()
 #if FEAT_SHREC != DYNAREC_NONE
 	if (config::DynarecEnabled)
 	{
-		fbneo_emulator_diag("Emulator::getSh4Executor FBNEO_FORCE_INTERPRETER: dynarec was requested; overriding to interpreter");
+		fbneo_emulator_diag("Emulator::getSh4Executor FBNEO_STABLE_FALLBACK: dynarec was requested; overriding to interpreter");
 		config::DynarecEnabled.override(false);
 	}
 #endif
@@ -984,7 +983,7 @@ void loadGameSpecificSettings()
 #if FEAT_SHREC != DYNAREC_NONE
 	config::DynarecEnabled.override(false);
 #endif
-	fbneo_emulator_diag("loadGameSpecificSettings FBNEO_FORCE_INTERPRETER: DynarecEnabled forced to 0");
+	fbneo_emulator_diag("loadGameSpecificSettings FBNEO_STABLE_FALLBACK: DynarecEnabled forced to 0");
 
 	if (config::GGPOEnable || settings.raHardcoreMode)
 		config::Sh4Clock.override(200);
