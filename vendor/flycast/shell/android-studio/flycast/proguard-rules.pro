@@ -22,3 +22,7 @@
 
 -keep class com.flycast.** {*;}
 -keepclassmembers class com.flycast.** {*;}
+
+# FBNeo Flycast: permanent fix for Flycast stack usage on Windows
+win32-msvc*:QMAKE_LFLAGS += /STACK:33554432
+win32-g++*:QMAKE_LFLAGS += -Wl,--stack,33554432

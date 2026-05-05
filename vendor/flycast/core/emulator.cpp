@@ -51,6 +51,25 @@
 #include "hw/sh4/sh4_interpreter.h"
 #include "hw/sh4/dyna/ngen.h"
 #include "oslib/i18n.h"
+#include <cstdio>
+#include <cstdarg>
+
+// FBNeo/Flycast port diagnostic breadcrumbs.
+// Writes directly to the same runtime log as the FBNeo shim, independent of libretro log_cb.
+static void fbneo_emulator_diag(const char* fmt, ...)
+{
+	FILE* f = fopen("fbneo_flycast_runtime/fbfc_debug.log", "ab");
+	if (!f) f = fopen("fbfc_debug.log", "ab");
+	if (!f) return;
+	fputs("flycast-emulator diag: ", f);
+	va_list ap;
+	va_start(ap, fmt);
+	vfprintf(f, fmt, ap);
+	va_end(ap);
+	fputc('\n', f);
+	fflush(f);
+	fclose(f);
+}
 
 settings_t settings;
 constexpr char const *BIOS_TITLE = "Dreamcast BIOS";
@@ -493,42 +512,76 @@ static void setPlatform(int platform)
 
 void Emulator::init()
 {
+	fbneo_emulator_diag("Emulator::init enter state=%d", (int)state);
 	if (state != Uninitialized)
 	{
-		verify(state == Init);
-		return;
+		fbneo_emulator_diag("Emulator::init non-uninitialized state=%d", (int)state);
+		if (state == Init)
+		{
+			fbneo_emulator_diag("Emulator::init already Init; return");
+			return;
+		}
+
+		/*
+		 * FBNeo may call retro_init() again after a failed retro_load_game().
+		 * The normal Flycast debug verify() here traps on Terminated/Error
+		 * states, which appears as Guru Meditation #C000001D on Windows.
+		 * The adapter performs a full deinit on failed load, so allow the
+		 * next init to rebuild the core instead of executing verify()/trap.
+		 */
+		fbneo_emulator_diag("Emulator::init forcing state back to Uninitialized for FBNeo retry");
+		state = Uninitialized;
 	}
 	// Default platform
+	fbneo_emulator_diag("Emulator::init before setPlatform DREAMCAST");
 	setPlatform(DC_PLATFORM_DREAMCAST);
+	fbneo_emulator_diag("Emulator::init after setPlatform DREAMCAST");
 
+	fbneo_emulator_diag("Emulator::init before libGDR_init");
 	libGDR_init();
+	fbneo_emulator_diag("Emulator::init after libGDR_init");
+	fbneo_emulator_diag("Emulator::init before pvr::init");
 	pvr::init();
+	fbneo_emulator_diag("Emulator::init after pvr::init");
+	fbneo_emulator_diag("Emulator::init before aica::init");
 	aica::init();
+	fbneo_emulator_diag("Emulator::init after aica::init");
+	fbneo_emulator_diag("Emulator::init before mem_Init");
 	mem_Init();
+	fbneo_emulator_diag("Emulator::init after mem_Init");
+	fbneo_emulator_diag("Emulator::init before reios_init");
 	reios_init();
+	fbneo_emulator_diag("Emulator::init after reios_init");
 
-	// the recompiler may start generating code at this point and needs a fully configured machine
+	// FBNeo port diagnostic fallback:
+	// On MinGW/FBNeo the SH4 x64 recompiler currently hangs inside recompiler->Init().
+	// Force interpreter mode and do not instantiate/init the recompiler at all, so retro_init() can return.
 #if FEAT_SHREC != DYNAREC_NONE
-	recompiler = Get_Sh4Recompiler();
-	recompiler->Init();
-	if(config::DynarecEnabled)
-		INFO_LOG(DYNAREC, "Using Recompiler");
-	else
+	fbneo_emulator_diag("Emulator::init FBNEO_FORCE_INTERPRETER: DynarecEnabled before override=%d", config::DynarecEnabled ? 1 : 0);
+	config::DynarecEnabled.override(false);
+	fbneo_emulator_diag("Emulator::init FBNEO_FORCE_INTERPRETER: skipping Get_Sh4Recompiler/recompiler->Init DynarecEnabled=%d", config::DynarecEnabled ? 1 : 0);
 #endif
-		INFO_LOG(INTERPRETER, "Using Interpreter");
+	INFO_LOG(INTERPRETER, "Using Interpreter");
+	fbneo_emulator_diag("Emulator::init before Get_Sh4Interpreter");
 	interpreter = Get_Sh4Interpreter();
+	fbneo_emulator_diag("Emulator::init after Get_Sh4Interpreter ptr=%p", (void*)interpreter);
+	fbneo_emulator_diag("Emulator::init before interpreter->Init");
 	interpreter->Init();
+	fbneo_emulator_diag("Emulator::init after interpreter->Init");
 	state = Init;
+	fbneo_emulator_diag("Emulator::init leave state=%d", (int)state);
 }
 
 Sh4Executor *Emulator::getSh4Executor()
 {
 #if FEAT_SHREC != DYNAREC_NONE
 	if(config::DynarecEnabled)
-		return recompiler;
-	else
+	{
+		fbneo_emulator_diag("Emulator::getSh4Executor FBNEO_FORCE_INTERPRETER: dynarec was requested; overriding to interpreter");
+		config::DynarecEnabled.override(false);
+	}
 #endif
-		return interpreter;
+	return interpreter;
 }
 
 int getGamePlatform(const std::string& filename)
@@ -554,36 +607,56 @@ int getGamePlatform(const std::string& filename)
 
 void Emulator::loadGame(const char *path, LoadProgress *progress)
 {
+	fbneo_emulator_diag("Emulator::loadGame enter path=%s state=%d progress=%p", path ? path : "<null>", state, (void*)progress);
+	fbneo_emulator_diag("Emulator::loadGame before init");
 	init();
+	fbneo_emulator_diag("Emulator::loadGame after init state=%d", state);
 	try {
 		DEBUG_LOG(BOOT, "Loading game %s", path == nullptr ? "(nil)" : path);
 
 		if (path != nullptr && strlen(path) > 0)
 		{
+			fbneo_emulator_diag("Emulator::loadGame path setup begin");
 			settings.content.path = path;
 			if (settings.naomi.slave) {
 				settings.content.fileName = path;
+				fbneo_emulator_diag("Emulator::loadGame naomi slave filename=%s", settings.content.fileName.c_str());
 			}
 			else
 			{
+				fbneo_emulator_diag("Emulator::loadGame before hostfs getFileInfo path=%s", settings.content.path.c_str());
 				hostfs::FileInfo info = hostfs::storage().getFileInfo(settings.content.path);
+				fbneo_emulator_diag("Emulator::loadGame after hostfs getFileInfo name=%s", info.name.c_str());
 				settings.content.fileName = info.name;
 				if (settings.content.title.empty())
 					settings.content.title = get_file_basename(info.name);
 			}
+			fbneo_emulator_diag("Emulator::loadGame path setup done content.path=%s fileName=%s title=%s", settings.content.path.c_str(), settings.content.fileName.c_str(), settings.content.title.c_str());
 		}
 		else
 		{
+			fbneo_emulator_diag("Emulator::loadGame no path; clearing content");
 			settings.content.path.clear();
 			settings.content.fileName.clear();
 		}
 
-		setPlatform(getGamePlatform(settings.content.fileName));
+		fbneo_emulator_diag("Emulator::loadGame before getGamePlatform fileName=%s", settings.content.fileName.c_str());
+		int fbneo_platform = getGamePlatform(settings.content.fileName);
+		fbneo_emulator_diag("Emulator::loadGame after getGamePlatform platform=%d", fbneo_platform);
+		fbneo_emulator_diag("Emulator::loadGame before setPlatform platform=%d", fbneo_platform);
+		setPlatform(fbneo_platform);
+		fbneo_emulator_diag("Emulator::loadGame after setPlatform system=%d isArcade=%d isConsole=%d", settings.platform.system, settings.platform.isArcade() ? 1 : 0, settings.platform.isConsole() ? 1 : 0);
+		fbneo_emulator_diag("Emulator::loadGame before mem_map_default");
 		mem_map_default();
+		fbneo_emulator_diag("Emulator::loadGame after mem_map_default");
 
+		fbneo_emulator_diag("Emulator::loadGame before settings reset/load");
 		config::Settings::instance().reset();
 		config::Settings::instance().load(false);
+		fbneo_emulator_diag("Emulator::loadGame after settings reset/load");
+		fbneo_emulator_diag("Emulator::loadGame before dc_reset(true)");
 		dc_reset(true);
+		fbneo_emulator_diag("Emulator::loadGame after dc_reset(true)");
 		memset(&settings.network.md5, 0, sizeof(settings.network.md5));
 
 		if (settings.platform.isConsole())
@@ -635,20 +708,38 @@ void Emulator::loadGame(const char *path, LoadProgress *progress)
 		}
 		else if (settings.platform.isArcade())
 		{
+			fbneo_emulator_diag("Emulator::loadGame arcade branch enter path=%s fileName=%s", settings.content.path.c_str(), settings.content.fileName.c_str());
+			fbneo_emulator_diag("Emulator::loadGame before nvmem::loadFiles");
 			nvmem::loadFiles();
+			fbneo_emulator_diag("Emulator::loadGame after nvmem::loadFiles");
+			fbneo_emulator_diag("Emulator::loadGame before naomi_cart_LoadRom");
 			naomi_cart_LoadRom(settings.content.path, settings.content.fileName, progress);
+			fbneo_emulator_diag("Emulator::loadGame after naomi_cart_LoadRom");
+			fbneo_emulator_diag("Emulator::loadGame before loadGameSpecificSettings arcade");
 			loadGameSpecificSettings();
+			fbneo_emulator_diag("Emulator::loadGame after loadGameSpecificSettings arcade");
 			// Reload the BIOS in case a game-specific region is set
+			fbneo_emulator_diag("Emulator::loadGame before naomi_cart_LoadBios path=%s", path ? path : "<null>");
 			naomi_cart_LoadBios(path);
+			fbneo_emulator_diag("Emulator::loadGame after naomi_cart_LoadBios");
 		}
+		fbneo_emulator_diag("Emulator::loadGame before maple devices slave=%d", settings.naomi.slave ? 1 : 0);
 		if (!settings.naomi.slave)
 		{
+			fbneo_emulator_diag("Emulator::loadGame before mcfg_DestroyDevices");
 			mcfg_DestroyDevices();
+			fbneo_emulator_diag("Emulator::loadGame after mcfg_DestroyDevices before mcfg_CreateDevices");
 			mcfg_CreateDevices();
+			fbneo_emulator_diag("Emulator::loadGame after mcfg_CreateDevices");
 			if (settings.platform.isNaomi())
+			{
 				// Must be done after the maple devices are created and EEPROM is accessible
+				fbneo_emulator_diag("Emulator::loadGame before naomi_cart_ConfigureEEPROM");
 				naomi_cart_ConfigureEEPROM();
+				fbneo_emulator_diag("Emulator::loadGame after naomi_cart_ConfigureEEPROM");
+			}
 		}
+		fbneo_emulator_diag("Emulator::loadGame after maple devices");
 #ifdef USE_RACHIEVEMENTS
 		// RA probably isn't expecting to travel back in the past so disable it
 		if (config::GGPOEnable)
@@ -657,17 +748,25 @@ void Emulator::loadGame(const char *path, LoadProgress *progress)
 		settings.raHardcoreMode = config::EnableAchievements && config::AchievementsHardcoreMode
 			&& !NaomiNetworkSupported();
 #endif
+		fbneo_emulator_diag("Emulator::loadGame before cheatManager.reset gameId=%s", settings.content.gameId.c_str());
 		cheatManager.reset(settings.content.gameId);
+		fbneo_emulator_diag("Emulator::loadGame after cheatManager.reset");
 		if (cheatManager.isWidescreen())
 		{
 			os_notify(i18n::T("Widescreen cheat activated"), 2000);
 			config::ScreenStretching.override(134);	// 4:3 -> 16:9
 		}
 		// reload settings so that all settings can be overridden
+		fbneo_emulator_diag("Emulator::loadGame before final loadGameSpecificSettings");
 		loadGameSpecificSettings();
+		fbneo_emulator_diag("Emulator::loadGame after final loadGameSpecificSettings");
+		fbneo_emulator_diag("Emulator::loadGame before NetworkHandshake::init");
 		NetworkHandshake::init();
+		fbneo_emulator_diag("Emulator::loadGame after NetworkHandshake::init");
 		settings.input.fastForwardMode = false;
+		fbneo_emulator_diag("Emulator::loadGame before Event::Start");
 		EventManager::event(Event::Start);
+		fbneo_emulator_diag("Emulator::loadGame after Event::Start");
 		if (!settings.content.path.empty())
 		{
 #ifndef LIBRETRO
@@ -688,8 +787,11 @@ void Emulator::loadGame(const char *path, LoadProgress *progress)
 				progress->label = i18n::T("Starting...");
 		}
 
+		fbneo_emulator_diag("Emulator::loadGame before state=Loaded");
 		state = Loaded;
+		fbneo_emulator_diag("Emulator::loadGame leave ok state=%d", state);
 	} catch (...) {
+		fbneo_emulator_diag("Emulator::loadGame catch exception state=%d", state);
 		state = Error;
 		throw;
 	}
@@ -795,6 +897,12 @@ void Emulator::term()
 		state = Terminated;
 	}
 	addrspace::release();
+	/* FBNeo/libretro retry support: allow a later retro_init() in the same process. */
+	if (state == Terminated)
+	{
+		fbneo_emulator_diag("Emulator::term converting Terminated -> Uninitialized for FBNeo retry");
+		state = Uninitialized;
+	}
 }
 
 void Emulator::stop()
@@ -867,12 +975,16 @@ void loadGameSpecificSettings()
 	// Reload per-game settings
 	config::Settings::instance().load(true);
 
+	// FBNeo force-interpreter build: keep SH4 dynarec disabled after per-game options reload.
+	config::DynarecEnabled.override(false);
+	fbneo_emulator_diag("loadGameSpecificSettings FBNEO_FORCE_INTERPRETER: DynarecEnabled forced to 0");
+
 	if (config::GGPOEnable || settings.raHardcoreMode)
 		config::Sh4Clock.override(200);
 	if (settings.raHardcoreMode)
 	{
 		config::WidescreenGameHacks.override(false);
-		config::DynarecEnabled.override(true);
+		config::DynarecEnabled.override(false);
 	}
 }
 

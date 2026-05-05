@@ -70,6 +70,23 @@
 #include "oslib/i18n.h"
 #include "input/dreampotato.h"
 
+// FBNeo/Flycast port diagnostic breadcrumbs.
+// Writes directly to the same runtime log as the FBNeo shim, independent of libretro log_cb.
+static void fbneo_core_diag(const char* fmt, ...)
+{
+	FILE* f = fopen("fbneo_flycast_runtime/fbfc_debug.log", "ab");
+	if (!f) f = fopen("fbfc_debug.log", "ab");
+	if (!f) return;
+	fputs("flycast-core diag: ", f);
+	va_list ap;
+	va_start(ap, fmt);
+	vfprintf(f, fmt, ap);
+	va_end(ap);
+	fputc('\n', f);
+	fflush(f);
+	fclose(f);
+}
+
 constexpr char slash = path_default_slash_c();
 
 #define RETRO_DEVICE_TWINSTICK				RETRO_DEVICE_SUBCLASS( RETRO_DEVICE_JOYPAD, 1 )
@@ -319,38 +336,59 @@ static void retro_keyboard_event(bool down, unsigned keycode, uint32_t character
 // Now comes the interesting stuff
 void retro_init()
 {
+	fbneo_core_diag("retro_init: enter");
 	first_run = true;
 	memset(device_type, -1, sizeof(device_type));
+	fbneo_core_diag("retro_init: first_run/device_type reset done");
 	
 	static bool emuInited;
 
 	// Logging
 	struct retro_log_callback log;
+	fbneo_core_diag("retro_init: before GET_LOG_INTERFACE");
 	if (environ_cb(RETRO_ENVIRONMENT_GET_LOG_INTERFACE, &log))
 		log_cb = log.log;
 	else
 		log_cb = NULL;
+	fbneo_core_diag("retro_init: after GET_LOG_INTERFACE log_cb=%p", (void*)log_cb);
+	fbneo_core_diag("retro_init: before LogManager::Init");
 	LogManager::Init((void *)log_cb);
+	fbneo_core_diag("retro_init: after LogManager::Init");
 	NOTICE_LOG(BOOT, "retro_init");
+	fbneo_core_diag("retro_init: after NOTICE_LOG");
 
+	fbneo_core_diag("retro_init: before GET_PERF_INTERFACE");
 	if (environ_cb(RETRO_ENVIRONMENT_GET_PERF_INTERFACE, &perf_cb))
 		perf_get_cpu_features_cb = perf_cb.get_cpu_features;
 	else
 		perf_get_cpu_features_cb = NULL;
+	fbneo_core_diag("retro_init: after GET_PERF_INTERFACE cpu_features=%p", (void*)perf_get_cpu_features_cb);
 
 	// Set color mode
 	unsigned color_mode = RETRO_PIXEL_FORMAT_XRGB8888;
+	fbneo_core_diag("retro_init: before SET_PIXEL_FORMAT");
 	environ_cb(RETRO_ENVIRONMENT_SET_PIXEL_FORMAT, &color_mode);
+	fbneo_core_diag("retro_init: after SET_PIXEL_FORMAT");
 
+	fbneo_core_diag("retro_init: before init_kb_map");
 	init_kb_map();
+	fbneo_core_diag("retro_init: after init_kb_map");
 	struct retro_keyboard_callback kb_callback = { &retro_keyboard_event };
+	fbneo_core_diag("retro_init: before SET_KEYBOARD_CALLBACK");
 	environ_cb(RETRO_ENVIRONMENT_SET_KEYBOARD_CALLBACK, &kb_callback);
+	fbneo_core_diag("retro_init: after SET_KEYBOARD_CALLBACK");
 
+	fbneo_core_diag("retro_init: before GET_INPUT_BITMASKS");
 	if (environ_cb(RETRO_ENVIRONMENT_GET_INPUT_BITMASKS, NULL))
 		libretro_supports_bitmasks = true;
+	fbneo_core_diag("retro_init: after GET_INPUT_BITMASKS supported=%d", libretro_supports_bitmasks ? 1 : 0);
 
+	fbneo_core_diag("retro_init: before init_disk_control_interface");
 	init_disk_control_interface();
+	fbneo_core_diag("retro_init: after init_disk_control_interface");
+	fbneo_core_diag("retro_init: before retro_audio_init");
 	retro_audio_init();
+	fbneo_core_diag("retro_init: after retro_audio_init");
 
 #if defined(__APPLE__)
     char *data_dir = NULL;
@@ -358,7 +396,10 @@ void retro_init()
         set_user_data_dir(std::string(data_dir) + "/");
 #endif
 
-	if (!addrspace::reserve())
+	fbneo_core_diag("retro_init: before addrspace::reserve");
+	bool fbneo_addrspace_ok = addrspace::reserve();
+	fbneo_core_diag("retro_init: after addrspace::reserve ok=%d", fbneo_addrspace_ok ? 1 : 0);
+	if (!fbneo_addrspace_ok)
 		ERROR_LOG(VMEM, "Cannot reserve memory space");
 
 #if defined(__linux__) || defined(__FreeBSD__)
@@ -366,17 +407,25 @@ void retro_init()
 	// Make sure to avoid this if SDL is initialized after the core (which happens).
 	setenv("SDL_NO_SIGNAL_HANDLERS", "1", 1);
 #endif
+	fbneo_core_diag("retro_init: before os_InstallFaultHandler");
 	os_InstallFaultHandler();
+	fbneo_core_diag("retro_init: after os_InstallFaultHandler");
 	MapleConfigMap::UpdateVibration = updateVibration;
+	fbneo_core_diag("retro_init: after UpdateVibration hook");
+	fbneo_core_diag("retro_init: before i18n::init");
 	i18n::init();
+	fbneo_core_diag("retro_init: after i18n::init");
 
+	fbneo_core_diag("retro_init: before emu.init emuInited=%d", emuInited ? 1 : 0);
 #if defined(__APPLE__) || (defined(__GNUC__) && defined(__linux__) && !defined(__ANDROID__))
 	if (!emuInited)
 #else
 	(void)emuInited;
 #endif
 		emu.init();
+	fbneo_core_diag("retro_init: after emu.init");
 	emuInited = true;
+	fbneo_core_diag("retro_init: leave emuInited=%d", emuInited ? 1 : 0);
 }
 
 void retro_deinit()
@@ -1289,15 +1338,24 @@ void retro_run()
 
 static bool loadGame()
 {
+	fbneo_core_diag("loadGame wrapper: enter game_data=%s", game_data.c_str());
 	try {
+		fbneo_core_diag("loadGame wrapper: before emu.loadGame");
 		emu.loadGame(game_data.c_str());
+		fbneo_core_diag("loadGame wrapper: after emu.loadGame");
 	} catch (const FlycastException& e) {
+		fbneo_core_diag("loadGame wrapper: FlycastException: %s", e.what());
 		ERROR_LOG(BOOT, "%s", e.what());
 		os_notify(e.what(), 5000);
         retro_unload_game();
 		return false;
+	} catch (...) {
+		fbneo_core_diag("loadGame wrapper: unknown exception");
+		retro_unload_game();
+		return false;
 	}
 
+	fbneo_core_diag("loadGame wrapper: leave ok");
 	return true;
 }
 
@@ -2132,6 +2190,7 @@ static bool set_dx11_hw_render()
 // Loading/unloading games
 bool retro_load_game(const struct retro_game_info *game)
 {
+	fbneo_core_diag("retro_load_game: enter game=%p path=%s", (const void*)game, (game && game->path) ? game->path : "<null>");
 #if defined(IOS)
 	bool can_jit;
 	if (environ_cb(RETRO_ENVIRONMENT_GET_JIT_CAPABLE, &can_jit) && !can_jit) {
@@ -2162,8 +2221,10 @@ bool retro_load_game(const struct retro_game_info *game)
 		settings.platform.system = DC_PLATFORM_DREAMCAST;
 		boot_to_bios = true;
 	}
+	fbneo_core_diag("retro_load_game: after path setup g_base_name=%s game_dir=%s g_roms_dir=%s boot_to_bios=%d", g_base_name, game_dir, g_roms_dir, boot_to_bios ? 1 : 0);
 	if (environ_cb(RETRO_ENVIRONMENT_GET_RUMBLE_INTERFACE, &rumble) && log_cb)
 		log_cb(RETRO_LOG_DEBUG, "Rumble interface supported!\n");
+	fbneo_core_diag("retro_load_game: after GET_RUMBLE_INTERFACE");
 
 	const char *dir = NULL;
 	if (!(environ_cb(RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY, &dir) && dir))
@@ -2187,7 +2248,10 @@ bool retro_load_game(const struct retro_game_info *game)
 		snprintf(content_name, sizeof(content_name), "vmu_save");
 	// Per-content VMU additions END
 
+	fbneo_core_diag("retro_load_game: dirs system_dir=%s game_dir=%s save_dir=%s content_name=%s", dir ? dir : "<null>", game_dir, vmu_dir_no_slash, content_name);
+	fbneo_core_diag("retro_load_game: before update_variables(true)");
 	update_variables(true);
+	fbneo_core_diag("retro_load_game: after update_variables(true)");
 
 	char *ext = strrchr(g_base_name, '.');
 
@@ -2196,14 +2260,18 @@ bool retro_load_game(const struct retro_game_info *game)
 		 * automatically to Naomi or AtomisWave. */
 		if (ext)
 		{
-			log_cb(RETRO_LOG_INFO, "File extension is: %s\n", ext);
+			fbneo_core_diag("retro_load_game: File extension is: %s", ext);
+			if (log_cb)
+				log_cb(RETRO_LOG_INFO, "File extension is: %s\n", ext);
 			if (!strcmp(".lst", ext)
 					|| !strcmp(".bin", ext) || !strcmp(".BIN", ext)
 					|| !strcmp(".dat", ext) || !strcmp(".DAT", ext)
 					|| !strcmp(".zip", ext) || !strcmp(".ZIP", ext)
 					|| !strcmp(".7z", ext) || !strcmp(".7Z", ext))
 			{
+				fbneo_core_diag("retro_load_game: before naomi_cart_GetPlatform path=%s", game->path);
 				settings.platform.system = naomi_cart_GetPlatform(game->path);
+				fbneo_core_diag("retro_load_game: after naomi_cart_GetPlatform system=%d", settings.platform.system);
 				// Users should use the superior format instead, let's warn them
 				if (!strcmp(".lst", ext)
 						|| !strcmp(".bin", ext) || !strcmp(".BIN", ext)
@@ -2259,6 +2327,8 @@ bool retro_load_game(const struct retro_game_info *game)
 		game_data = game->path;
 	}
 
+	fbneo_core_diag("retro_load_game: game_data selected=%s disk_paths=%u", game_data.c_str(), (unsigned)disk_paths.size());
+
 	{
 		char data_dir[1024];
 
@@ -2272,9 +2342,11 @@ bool retro_load_game(const struct retro_game_info *game)
 		}
 	}
 
+	fbneo_core_diag("retro_load_game: before GET_PREFERRED_HW_RENDER");
 	u32 preferred;
 	if (!environ_cb(RETRO_ENVIRONMENT_GET_PREFERRED_HW_RENDER, &preferred))
 		preferred = RETRO_HW_CONTEXT_DUMMY;
+	fbneo_core_diag("retro_load_game: after GET_PREFERRED_HW_RENDER preferred=%u", (unsigned)preferred);
 	bool foundRenderApi = false;
 
 	if (preferred == RETRO_HW_CONTEXT_OPENGL || preferred == RETRO_HW_CONTEXT_OPENGL_CORE
@@ -2310,8 +2382,12 @@ bool retro_load_game(const struct retro_game_info *game)
 #endif
 	}
 
+	fbneo_core_diag("retro_load_game: render API selection done foundRenderApi=%d", foundRenderApi ? 1 : 0);
 	if (!foundRenderApi)
+	{
+		fbneo_core_diag("retro_load_game: no HW render API available, returning false");
 		return false;
+	}
 
 	if (settings.platform.isArcade())
 	{
@@ -2336,8 +2412,13 @@ bool retro_load_game(const struct retro_game_info *game)
 	}
 
 	config::ScreenStretching = 100;
+	fbneo_core_diag("retro_load_game: before loadGame wrapper");
 	if (!loadGame())
+	{
+		fbneo_core_diag("retro_load_game: loadGame wrapper failed, returning false");
 		return false;
+	}
+	fbneo_core_diag("retro_load_game: after loadGame wrapper");
 
 	rotate_game = config::Rotate90;
 	if (rotate_game)
@@ -2353,6 +2434,7 @@ bool retro_load_game(const struct retro_game_info *game)
 	// System may have changed - have to update hidden core options
 	set_variable_visibility();
 
+	fbneo_core_diag("retro_load_game: leave ok");
 	return true;
 }
 
@@ -3780,7 +3862,9 @@ static bool read_m3u(const char *file)
 
 	if (!f)
 	{
-		log_cb(RETRO_LOG_ERROR, "Could not read file\n");
+		fbneo_core_diag("read_m3u: Could not read file %s", file ? file : "<null>");
+		if (log_cb)
+			log_cb(RETRO_LOG_ERROR, "Could not read file\n");
 		return false;
 	}
 

@@ -1,4 +1,5 @@
 #pragma once
+
 #include <stdint.h>
 #include <stddef.h>
 
@@ -8,9 +9,9 @@ extern "C" {
 
 enum FbneoFlycastPlatform {
     FBFC_PLATFORM_ATOMISWAVE = 0,
-    FBFC_PLATFORM_NAOMI      = 1,
-    FBFC_PLATFORM_NAOMI2     = 2,
-    FBFC_PLATFORM_DREAMCAST  = 3,
+    FBFC_PLATFORM_NAOMI = 1,
+    FBFC_PLATFORM_NAOMI2 = 2,
+    FBFC_PLATFORM_DREAMCAST = 3,
 };
 
 enum FbneoFlycastInputType {

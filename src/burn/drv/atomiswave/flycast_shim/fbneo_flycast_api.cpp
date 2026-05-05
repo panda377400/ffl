@@ -12,6 +12,7 @@
 
 #if defined(_WIN32)
 #include <windows.h>
+#include <GL/gl.h>
 #include <direct.h>
 #define FBFC_MKDIR(path) _mkdir(path)
 #if defined(__MINGW32__) && !defined(FBNEO_FLYCAST_MINGW_STAT64I32_COMPAT)
@@ -81,8 +82,190 @@ static std::string g_game_zip_path;
 static enum retro_pixel_format g_pixel_format = RETRO_PIXEL_FORMAT_XRGB8888;
 static retro_keyboard_event_t g_keyboard_cb = NULL;
 static struct retro_disk_control_callback g_disk_cb;
+
+/* WGL helpers are declared before the logger implementation, so provide a forward declaration. */
+static void fbfc_log(const char* fmt, ...);
+
 #ifdef RETRO_ENVIRONMENT_SET_DISK_CONTROL_EXT_INTERFACE
 static struct retro_disk_control_ext_callback g_disk_ext_cb;
+#endif
+
+#if defined(_WIN32)
+static PVOID g_fbfc_veh = NULL;
+
+/*
+ * Minimal libretro HW-render frontend for the embedded Flycast core.
+ *
+ * This creates a private hidden WGL context so Flycast's OpenGL renderer can
+ * initialize. Since FBNeo's normal blitter expects CPU pixels, lr_video_cb()
+ * reads the OpenGL backbuffer into a CPU XRGB8888 buffer. It is intentionally
+ * slow, but it proves the core can boot and gives us a working path before a
+ * proper FBNeo texture presenter is wired up.
+ */
+static HWND  g_hw_hwnd = NULL;
+static HDC   g_hw_hdc = NULL;
+static HGLRC g_hw_hglrc = NULL;
+static int   g_hw_ready = 0;
+static int   g_hw_reset_called = 0;
+static struct retro_hw_render_callback g_hw_cb;
+static std::vector<uint32_t> g_hw_readback;
+
+static LRESULT CALLBACK fbfc_hw_wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
+{
+    return DefWindowProcA(hwnd, msg, wp, lp);
+}
+
+static bool fbfc_hw_make_current(void)
+{
+    if (!g_hw_hdc || !g_hw_hglrc) return false;
+    return wglMakeCurrent(g_hw_hdc, g_hw_hglrc) ? true : false;
+}
+
+static bool fbfc_hw_init_window(void)
+{
+    if (g_hw_ready) return fbfc_hw_make_current();
+
+    HINSTANCE inst = GetModuleHandleA(NULL);
+    static ATOM cls = 0;
+    if (!cls) {
+        WNDCLASSA wc;
+        memset(&wc, 0, sizeof(wc));
+        wc.style = CS_OWNDC;
+        wc.lpfnWndProc = fbfc_hw_wndproc;
+        wc.hInstance = inst;
+        wc.lpszClassName = "FBNeoFlycastHiddenWGL";
+        cls = RegisterClassA(&wc);
+        if (!cls) {
+            fbfc_log("WGL: RegisterClass failed err=%lu", (unsigned long)GetLastError());
+            return false;
+        }
+    }
+
+    g_hw_hwnd = CreateWindowExA(0, "FBNeoFlycastHiddenWGL", "FBNeo Flycast WGL",
+                                WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT,
+                                640, 480, NULL, NULL, inst, NULL);
+    if (!g_hw_hwnd) {
+        fbfc_log("WGL: CreateWindow failed err=%lu", (unsigned long)GetLastError());
+        return false;
+    }
+
+    g_hw_hdc = GetDC(g_hw_hwnd);
+    if (!g_hw_hdc) {
+        fbfc_log("WGL: GetDC failed err=%lu", (unsigned long)GetLastError());
+        DestroyWindow(g_hw_hwnd);
+        g_hw_hwnd = NULL;
+        return false;
+    }
+
+    PIXELFORMATDESCRIPTOR pfd;
+    memset(&pfd, 0, sizeof(pfd));
+    pfd.nSize = sizeof(pfd);
+    pfd.nVersion = 1;
+    pfd.dwFlags = PFD_DRAW_TO_WINDOW | PFD_SUPPORT_OPENGL | PFD_DOUBLEBUFFER;
+    pfd.iPixelType = PFD_TYPE_RGBA;
+    pfd.cColorBits = 32;
+    pfd.cDepthBits = 24;
+    pfd.cStencilBits = 8;
+    pfd.iLayerType = PFD_MAIN_PLANE;
+
+    int pf = ChoosePixelFormat(g_hw_hdc, &pfd);
+    if (!pf || !SetPixelFormat(g_hw_hdc, pf, &pfd)) {
+        fbfc_log("WGL: Choose/SetPixelFormat failed pf=%d err=%lu", pf, (unsigned long)GetLastError());
+        ReleaseDC(g_hw_hwnd, g_hw_hdc);
+        DestroyWindow(g_hw_hwnd);
+        g_hw_hdc = NULL;
+        g_hw_hwnd = NULL;
+        return false;
+    }
+
+    g_hw_hglrc = wglCreateContext(g_hw_hdc);
+    if (!g_hw_hglrc) {
+        fbfc_log("WGL: wglCreateContext failed err=%lu", (unsigned long)GetLastError());
+        ReleaseDC(g_hw_hwnd, g_hw_hdc);
+        DestroyWindow(g_hw_hwnd);
+        g_hw_hdc = NULL;
+        g_hw_hwnd = NULL;
+        return false;
+    }
+
+    if (!fbfc_hw_make_current()) {
+        fbfc_log("WGL: wglMakeCurrent failed err=%lu", (unsigned long)GetLastError());
+        wglDeleteContext(g_hw_hglrc);
+        ReleaseDC(g_hw_hwnd, g_hw_hdc);
+        DestroyWindow(g_hw_hwnd);
+        g_hw_hglrc = NULL;
+        g_hw_hdc = NULL;
+        g_hw_hwnd = NULL;
+        return false;
+    }
+
+    g_hw_ready = 1;
+    fbfc_log("WGL: hidden OpenGL context created vendor=%s renderer=%s version=%s",
+             glGetString(GL_VENDOR) ? (const char*)glGetString(GL_VENDOR) : "<null>",
+             glGetString(GL_RENDERER) ? (const char*)glGetString(GL_RENDERER) : "<null>",
+             glGetString(GL_VERSION) ? (const char*)glGetString(GL_VERSION) : "<null>");
+    return true;
+}
+
+static uintptr_t RETRO_CALLCONV fbfc_hw_get_current_framebuffer(void)
+{
+    /* Default framebuffer for OpenGL. */
+    return 0;
+}
+
+static retro_proc_address_t RETRO_CALLCONV fbfc_hw_get_proc_address(const char* sym)
+{
+    if (!sym || !sym[0]) return NULL;
+    PROC p = wglGetProcAddress(sym);
+    if (!p || p == (PROC)1 || p == (PROC)2 || p == (PROC)3 || p == (PROC)-1) {
+        HMODULE gl = GetModuleHandleA("opengl32.dll");
+        if (!gl) gl = LoadLibraryA("opengl32.dll");
+        if (gl) p = GetProcAddress(gl, sym);
+    }
+    return (retro_proc_address_t)p;
+}
+
+static void fbfc_hw_call_context_reset_if_needed(void)
+{
+    if (!g_hw_ready || g_hw_reset_called) return;
+    if (!fbfc_hw_make_current()) return;
+    if (g_hw_cb.context_reset) {
+        fbfc_log("WGL: calling core context_reset");
+        g_hw_cb.context_reset();
+    }
+    g_hw_reset_called = 1;
+}
+
+static void fbfc_hw_destroy(void)
+{
+    if (g_hw_ready && g_hw_cb.context_destroy) {
+        fbfc_hw_make_current();
+        fbfc_log("WGL: calling core context_destroy");
+        g_hw_cb.context_destroy();
+    }
+    g_hw_reset_called = 0;
+    memset(&g_hw_cb, 0, sizeof(g_hw_cb));
+    g_hw_readback.clear();
+
+    if (g_hw_hglrc) {
+        wglMakeCurrent(NULL, NULL);
+        wglDeleteContext(g_hw_hglrc);
+        g_hw_hglrc = NULL;
+    }
+    if (g_hw_hwnd && g_hw_hdc) {
+        ReleaseDC(g_hw_hwnd, g_hw_hdc);
+        g_hw_hdc = NULL;
+    }
+    if (g_hw_hwnd) {
+        DestroyWindow(g_hw_hwnd);
+        g_hw_hwnd = NULL;
+    }
+    if (g_hw_ready) fbfc_log("WGL: hidden OpenGL context destroyed");
+    g_hw_ready = 0;
+}
+#else
+static void fbfc_hw_call_context_reset_if_needed(void) {}
+static void fbfc_hw_destroy(void) {}
 #endif
 
 static void make_dir_quiet(const std::string& path)
@@ -103,11 +286,35 @@ static void ensure_runtime_dirs(void)
 static void reset_debug_log(void)
 {
     ensure_runtime_dirs();
-    FILE* f = fopen("fbneo_flycast_runtime/fbfc_debug.log", "wb");
+
+    /*
+     * Keep the previous failed-load session in the log. FBNeo may immediately
+     * retry a driver after DrvInit() returns failure; opening with "wb" here
+     * hid the real retro_load_game failure and left only the second crash.
+     */
+    FILE* f = fopen("fbneo_flycast_runtime/fbfc_debug.log", "ab");
+    if (!f) f = fopen("fbfc_debug.log", "ab");
     if (f) {
-        fputs("fbneo/flycast debug log\n", f);
+        long pos = 0;
+        if (fseek(f, 0, SEEK_END) == 0) pos = ftell(f);
+        if (pos <= 0) {
+            fputs("fbneo/flycast debug log\n", f);
+            fputs("adapter: safe retro_init variant; no watchdog/corethread, no adapter VEH, no log/perf callbacks\n", f);
+        }
+        fputs("\n---- fbfc session begin ----\n", f);
         fclose(f);
     }
+}
+
+static void fbfc_vlog_to_file(const char* prefix, const char* fmt, va_list ap)
+{
+    FILE* f = fopen("fbneo_flycast_runtime/fbfc_debug.log", "ab");
+    if (!f) f = fopen("fbfc_debug.log", "ab");
+    if (!f) return;
+    if (prefix) fputs(prefix, f);
+    vfprintf(f, fmt, ap);
+    fputc('\n', f);
+    fclose(f);
 }
 
 static void fbfc_log(const char* fmt, ...)
@@ -121,32 +328,12 @@ static void fbfc_log(const char* fmt, ...)
     fprintf(stderr, "\n");
     fflush(stderr);
 
-    FILE* f = fopen("fbneo_flycast_runtime/fbfc_debug.log", "ab");
-    if (!f) f = fopen("fbfc_debug.log", "ab");
-    if (f) {
-        fprintf(f, "atomiswave/flycast: ");
-        va_start(ap, fmt);
-        vfprintf(f, fmt, ap);
-        va_end(ap);
-        fputc('\n', f);
-        fclose(f);
-    }
+    va_start(ap, fmt);
+    fbfc_vlog_to_file("atomiswave/flycast: ", fmt, ap);
+    va_end(ap);
 }
 
 #if defined(_WIN32)
-/*
- * v14: normal Flycast VMEM/fault-handler path restored.
- * The old GNU ld --wrap test functions were removed because v12 removes the
- * matching --wrap linker flags; keeping calls to __real_* without --wrap causes
- * unresolved references at link time.
- *
- * The watchdog/context dump below remains active. If retro_init() hangs after
- * the VMEM BASE line, the adapter logs RIP/RSP and leaves the stuck core
- * thread alive so gdb can attach and collect a real backtrace. Do not click
- * the FBNeo error dialog before running gdb_v14_attach_latest.bat.
- */
-
-static PVOID g_fbfc_veh = NULL;
 static LONG WINAPI fbfc_vectored_exception_handler(PEXCEPTION_POINTERS p)
 {
     if (p && p->ExceptionRecord) {
@@ -156,20 +343,20 @@ static LONG WINAPI fbfc_vectored_exception_handler(PEXCEPTION_POINTERS p)
         if (p->ExceptionRecord->NumberParameters > 1) access_addr = p->ExceptionRecord->ExceptionInformation[1];
 #if defined(_M_X64) || defined(__x86_64__)
         fbfc_log("WINDOWS EXCEPTION code=%08lx address=%p access_type=%llu access_addr=%p rip=%p rsp=%p tid=%lu",
-            (unsigned long)p->ExceptionRecord->ExceptionCode,
-            p->ExceptionRecord->ExceptionAddress,
-            (unsigned long long)access_type,
-            (void*)access_addr,
-            p->ContextRecord ? (void*)p->ContextRecord->Rip : NULL,
-            p->ContextRecord ? (void*)p->ContextRecord->Rsp : NULL,
-            (unsigned long)GetCurrentThreadId());
+                 (unsigned long)p->ExceptionRecord->ExceptionCode,
+                 p->ExceptionRecord->ExceptionAddress,
+                 (unsigned long long)access_type,
+                 (void*)access_addr,
+                 p->ContextRecord ? (void*)p->ContextRecord->Rip : NULL,
+                 p->ContextRecord ? (void*)p->ContextRecord->Rsp : NULL,
+                 (unsigned long)GetCurrentThreadId());
 #else
         fbfc_log("WINDOWS EXCEPTION code=%08lx address=%p access_type=%llu access_addr=%p tid=%lu",
-            (unsigned long)p->ExceptionRecord->ExceptionCode,
-            p->ExceptionRecord->ExceptionAddress,
-            (unsigned long long)access_type,
-            (void*)access_addr,
-            (unsigned long)GetCurrentThreadId());
+                 (unsigned long)p->ExceptionRecord->ExceptionCode,
+                 p->ExceptionRecord->ExceptionAddress,
+                 (unsigned long long)access_type,
+                 (void*)access_addr,
+                 (unsigned long)GetCurrentThreadId());
 #endif
     } else {
         fbfc_log("WINDOWS EXCEPTION tid=%lu", (unsigned long)GetCurrentThreadId());
@@ -219,7 +406,7 @@ static bool write_store_zip(const char* path, const FbneoFlycastRomEntry* roms, 
     }
 
     std::vector<ZipCentralEntry> central;
-    central.reserve((size_t)rom_count);
+    central.reserve((size_t)((rom_count > 0) ? rom_count : 0));
 
     for (int i = 0; i < rom_count; i++) {
         const FbneoFlycastRomEntry& r = roms[i];
@@ -304,13 +491,11 @@ static bool copy_file_if_exists(const char* src, const char* dst)
 {
     FILE* in = fopen(src, "rb");
     if (!in) return false;
-
     FILE* out = fopen(dst, "wb");
     if (!out) {
         fclose(in);
         return false;
     }
-
     char buf[16384];
     size_t n;
     while ((n = fread(buf, 1, sizeof(buf), in)) > 0) {
@@ -336,24 +521,74 @@ static void stage_bios_files(const FbneoFlycastGameInfo* game)
     copy_file_if_exists(src1.c_str(), dst2.c_str());
     copy_file_if_exists(src2.c_str(), dst1.c_str());
     copy_file_if_exists(src2.c_str(), dst2.c_str());
+
     copy_file_if_exists("roms/awbios.zip", "fbneo_flycast_runtime/system/awbios.zip");
     copy_file_if_exists("roms/awbios.zip", "fbneo_flycast_runtime/system/dc/awbios.zip");
     copy_file_if_exists("roms/naomi.zip", "fbneo_flycast_runtime/system/naomi.zip");
     copy_file_if_exists("roms/naomi.zip", "fbneo_flycast_runtime/system/dc/naomi.zip");
+    copy_file_if_exists("roms/naomi2.zip", "fbneo_flycast_runtime/system/naomi2.zip");
+    copy_file_if_exists("roms/naomi2.zip", "fbneo_flycast_runtime/system/dc/naomi2.zip");
+
     copy_file_if_exists("roms/dc/awbios.zip", "fbneo_flycast_runtime/system/awbios.zip");
     copy_file_if_exists("roms/dc/awbios.zip", "fbneo_flycast_runtime/system/dc/awbios.zip");
     copy_file_if_exists("roms/dc/naomi.zip", "fbneo_flycast_runtime/system/naomi.zip");
     copy_file_if_exists("roms/dc/naomi.zip", "fbneo_flycast_runtime/system/dc/naomi.zip");
+    copy_file_if_exists("roms/dc/naomi2.zip", "fbneo_flycast_runtime/system/naomi2.zip");
+    copy_file_if_exists("roms/dc/naomi2.zip", "fbneo_flycast_runtime/system/dc/naomi2.zip");
 }
 
 static void lr_video_cb(const void* data, unsigned width, unsigned height, size_t pitch)
 {
 #ifdef RETRO_HW_FRAME_BUFFER_VALID
-    if (!g_callbacks.video || !data || data == RETRO_HW_FRAME_BUFFER_VALID) return;
-#else
-    if (!g_callbacks.video || !data) return;
-#endif
+    if (data == RETRO_HW_FRAME_BUFFER_VALID) {
+#if defined(_WIN32)
+        if (!g_callbacks.video) return;
+        if (!fbfc_hw_make_current()) {
+            fbfc_log("WGL: video_cb HW frame but context is not current");
+            return;
+        }
+        int w = width ? (int)width : g_width;
+        int h = height ? (int)height : g_height;
+        if (w <= 0 || h <= 0 || w > 8192 || h > 8192) return;
 
+        std::vector<unsigned char> rgba((size_t)w * (size_t)h * 4u);
+        g_hw_readback.resize((size_t)w * (size_t)h);
+        glPixelStorei(GL_PACK_ALIGNMENT, 1);
+        glReadBuffer(GL_BACK);
+        glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, rgba.data());
+
+        GLenum err = glGetError();
+        if (err != GL_NO_ERROR) {
+            fbfc_log("WGL: glReadPixels GL_RGBA failed err=0x%04x", (unsigned)err);
+            return;
+        }
+
+        for (int y = 0; y < h; y++) {
+            const unsigned char* src = &rgba[(size_t)(h - 1 - y) * (size_t)w * 4u];
+            uint32_t* dst = &g_hw_readback[(size_t)y * (size_t)w];
+            for (int x = 0; x < w; x++) {
+                unsigned r = src[x * 4 + 0];
+                unsigned g = src[x * 4 + 1];
+                unsigned b = src[x * 4 + 2];
+                dst[x] = 0xff000000u | (r << 16) | (g << 8) | b;
+            }
+        }
+
+        FbneoFlycastVideoFrame frame;
+        memset(&frame, 0, sizeof(frame));
+        frame.pixels = g_hw_readback.data();
+        frame.width = w;
+        frame.height = h;
+        frame.pitch_bytes = w * 4;
+        frame.valid_cpu = 1;
+        frame.valid_hw = 0;
+        g_callbacks.video(&frame, g_callbacks.user);
+        SwapBuffers(g_hw_hdc);
+#endif
+        return;
+    }
+#endif
+    if (!g_callbacks.video || !data) return;
     FbneoFlycastVideoFrame frame;
     memset(&frame, 0, sizeof(frame));
     frame.pixels = data;
@@ -394,15 +629,12 @@ static int16_t joypad_state(unsigned port, unsigned id)
 static int16_t lr_input_state_cb(unsigned port, unsigned device, unsigned index, unsigned id)
 {
     if (port >= 4) return 0;
-
     if (device == RETRO_DEVICE_JOYPAD) return joypad_state(port, id);
-
     if (device == RETRO_DEVICE_ANALOG) {
         unsigned axis = index * 2 + id;
         if (axis < 8) return g_input.analog[port][axis];
         return 0;
     }
-
     if (device == RETRO_DEVICE_LIGHTGUN) {
         if (id == RETRO_DEVICE_ID_LIGHTGUN_SCREEN_X) return g_input.gun_x[port];
         if (id == RETRO_DEVICE_ID_LIGHTGUN_SCREEN_Y) return g_input.gun_y[port];
@@ -410,7 +642,6 @@ static int16_t lr_input_state_cb(unsigned port, unsigned device, unsigned index,
         if (id == RETRO_DEVICE_ID_LIGHTGUN_RELOAD) return g_input.gun_reload[port] ? 1 : 0;
         return joypad_state(port, id);
     }
-
     return 0;
 }
 
@@ -419,21 +650,15 @@ static void lr_log_cb(enum retro_log_level level, const char* fmt, ...)
     (void)level;
     va_list ap;
 
-    FILE* f = fopen("fbneo_flycast_runtime/fbfc_debug.log", "ab");
-    if (!f) f = fopen("fbfc_debug.log", "ab");
-    if (f) {
-        fprintf(f, "flycast: ");
-        va_start(ap, fmt);
-        vfprintf(f, fmt, ap);
-        va_end(ap);
-        fclose(f);
-    }
-
     fprintf(stderr, "flycast: ");
     va_start(ap, fmt);
     vfprintf(stderr, fmt, ap);
     va_end(ap);
     fflush(stderr);
+
+    va_start(ap, fmt);
+    fbfc_vlog_to_file("flycast: ", fmt, ap);
+    va_end(ap);
 }
 
 static void update_av_info(const struct retro_system_av_info* av)
@@ -543,6 +768,59 @@ static void lr_keyboard_dummy(bool down, unsigned keycode, uint32_t character, u
     (void)key_modifiers;
 }
 
+struct FbfcCoreOptionValue {
+    const char* key;
+    const char* value;
+};
+
+static const FbfcCoreOptionValue g_core_option_values[] = {
+    { "flycast_threaded_rendering", "disabled" },
+    { "flycast_delay_frame_swapping", "disabled" },
+    { "flycast_skip_frame", "disabled" },
+    { "flycast_frame_skipping", "disabled" },
+    { "flycast_enable_dsp", "disabled" },
+    { "flycast_hle_bios", "disabled" },
+    { "flycast_boot_to_bios", "disabled" },
+    { "flycast_region", "Default" },
+    { "flycast_language", "Default" },
+    { "flycast_internal_resolution", "640x480" },
+    { "flycast_cable_type", "TV (Composite)" },
+    { "flycast_brodcast", "Default" },
+    { "flycast_alpha_sorting", "Per-Strip (fast, least accurate)" },
+    { "flycast_widescreen_cheats", "Off" },
+    { "flycast_widescreen_hack", "Off" },
+    { "flycast_gdrom_fast_loading", "Off" },
+    { "flycast_custom_textures", "Off" },
+    { "flycast_dump_textures", "Off" },
+    { "flycast_per_content_vmus", "disabled" },
+    { "flycast_vmu1_screen_display", "Off" },
+    { "flycast_vmu2_screen_display", "Off" },
+    { "flycast_vmu3_screen_display", "Off" },
+    { "flycast_vmu4_screen_display", "Off" },
+    { "flycast_enable_purupuru", "Off" },
+    { "flycast_lightgun1_crosshair", "Off" },
+    { "flycast_lightgun2_crosshair", "Off" },
+    { "flycast_lightgun3_crosshair", "Off" },
+    { "flycast_lightgun4_crosshair", "Off" },
+    /* Older/alternate Flycast builds have used these names. Unknown keys are harmless. */
+    { "reicast_threaded_rendering", "disabled" },
+    { "reicast_enable_dsp", "disabled" },
+    { "reicast_region", "Default" },
+    { "reicast_language", "Default" },
+    { "flycast_cpu_mode", "interpreter" },
+    { "reicast_cpu_mode", "interpreter" },
+    { NULL, NULL }
+};
+
+static const char* fbfc_lookup_core_option(const char* key)
+{
+    if (!key || !key[0]) return NULL;
+    for (int i = 0; g_core_option_values[i].key; i++) {
+        if (strcmp(key, g_core_option_values[i].key) == 0) return g_core_option_values[i].value;
+    }
+    return NULL;
+}
+
 static bool lr_environment_cb(unsigned cmd, void* data)
 {
     switch (cmd) {
@@ -635,8 +913,9 @@ static bool lr_environment_cb(unsigned cmd, void* data)
     case RETRO_ENVIRONMENT_GET_VARIABLE:
         if (data) {
             struct retro_variable* var = (struct retro_variable*)data;
-            fbfc_log("get variable: %s", var->key ? var->key : "");
-            var->value = NULL;
+            var->value = fbfc_lookup_core_option(var->key);
+            fbfc_log("get variable: %s -> %s", var->key ? var->key : "", var->value ? var->value : "<null>");
+            return var->value != NULL;
         }
         return false;
 
@@ -649,27 +928,22 @@ static bool lr_environment_cb(unsigned cmd, void* data)
         return true;
 
     case RETRO_ENVIRONMENT_GET_LOG_INTERFACE:
-        if (data) {
-            struct retro_log_callback* log = (struct retro_log_callback*)data;
-            log->log = lr_log_cb;
-            return true;
-        }
+        /*
+         * Safe-init diagnostic build:
+         * Do not hand Flycast a frontend log callback during retro_init().
+         * This rules out callback re-entry / CRT / file-lock problems while
+         * Flycast initializes LogManager, VMEM, fault handlers and Emulator::init().
+         */
+        fbfc_log("log interface requested: not supplied in safe-init build");
         return false;
 
     case RETRO_ENVIRONMENT_GET_PERF_INTERFACE:
-        if (data) {
-            struct retro_perf_callback* perf = (struct retro_perf_callback*)data;
-            memset(perf, 0, sizeof(*perf));
-            perf->get_time_usec = lr_perf_get_time_usec;
-            perf->get_cpu_features = lr_get_cpu_features;
-            perf->get_perf_counter = lr_perf_get_counter;
-            perf->perf_register = lr_perf_register;
-            perf->perf_start = lr_perf_start;
-            perf->perf_stop = lr_perf_stop;
-            perf->perf_log = lr_perf_log;
-            fbfc_log("perf interface supplied");
-            return true;
-        }
+        /*
+         * Also withhold perf callbacks for the same reason. Flycast can run
+         * without them; this keeps retro_init() as close to a null frontend as
+         * possible.
+         */
+        fbfc_log("perf interface requested: not supplied in safe-init build");
         return false;
 
     case RETRO_ENVIRONMENT_SET_KEYBOARD_CALLBACK:
@@ -715,15 +989,47 @@ static bool lr_environment_cb(unsigned cmd, void* data)
         return true;
 #endif
 
+#ifdef RETRO_ENVIRONMENT_GET_RUMBLE_INTERFACE
+    case RETRO_ENVIRONMENT_GET_RUMBLE_INTERFACE:
+        fbfc_log("rumble interface requested: not supplied");
+        return false;
+#endif
+
 #ifdef RETRO_ENVIRONMENT_SET_HW_RENDER
     case RETRO_ENVIRONMENT_SET_HW_RENDER:
-        fbfc_log("core requested HW render; this adapter does not expose libretro HW render yet");
+#if defined(_WIN32)
+        if (!data) return false;
+        {
+            struct retro_hw_render_callback* cb = (struct retro_hw_render_callback*)data;
+            fbfc_log("core requested HW render context_type=%d version=%u.%u depth=%d stencil=%d",
+                     (int)cb->context_type, cb->version_major, cb->version_minor,
+                     cb->depth ? 1 : 0, cb->stencil ? 1 : 0);
+            if (cb->context_type != RETRO_HW_CONTEXT_OPENGL) {
+                fbfc_log("HW render: rejecting non-OpenGL context_type=%d", (int)cb->context_type);
+                return false;
+            }
+            if (!fbfc_hw_init_window()) {
+                fbfc_log("HW render: failed to create hidden WGL context");
+                return false;
+            }
+            cb->get_current_framebuffer = fbfc_hw_get_current_framebuffer;
+            cb->get_proc_address = fbfc_hw_get_proc_address;
+            g_hw_cb = *cb;
+            g_hw_reset_called = 0;
+            fbfc_log("HW render: accepted OpenGL through hidden WGL + CPU readback");
+            return true;
+        }
+#else
+        fbfc_log("core requested HW render but this shim only implements Win32 WGL currently");
         return false;
+#endif
 #endif
 
 #ifdef RETRO_ENVIRONMENT_GET_PREFERRED_HW_RENDER
     case RETRO_ENVIRONMENT_GET_PREFERRED_HW_RENDER:
-        return false;
+        if (data) *(unsigned*)data = RETRO_HW_CONTEXT_OPENGL;
+        fbfc_log("preferred HW render requested: returning OpenGL");
+        return true;
 #endif
 
 #ifdef RETRO_ENVIRONMENT_SET_FRAME_TIME_CALLBACK
@@ -776,320 +1082,24 @@ static bool lr_environment_cb(unsigned cmd, void* data)
     }
 }
 
-#if defined(_WIN32)
-enum FbfcCoreOp {
-    FBFC_CORE_NONE = 0,
-    FBFC_CORE_INIT,
-    FBFC_CORE_DEINIT,
-    FBFC_CORE_LOAD_GAME,
-    FBFC_CORE_UNLOAD_GAME,
-    FBFC_CORE_RESET,
-    FBFC_CORE_RUN,
-    FBFC_CORE_SERIALIZE_SIZE,
-    FBFC_CORE_SERIALIZE,
-    FBFC_CORE_UNSERIALIZE,
-    FBFC_CORE_STOP
-};
-
-struct FbfcCoreRequest {
-    int op;
-    const struct retro_game_info* game;
-    void* data;
-    const void* cdata;
-    size_t size;
-    int iret;
-    size_t sret;
-};
-
-static HANDLE g_core_thread = NULL;
-static HANDLE g_core_req_event = NULL;
-static HANDLE g_core_done_event = NULL;
-static CRITICAL_SECTION g_core_cs;
-static int g_core_cs_ready = 0;
-static DWORD g_core_tid = 0;
-static int g_core_stuck = 0;
-static int g_core_timeout_op = FBFC_CORE_NONE;
-static FbfcCoreRequest g_core_req;
-
-
-static DWORD fbfc_core_timeout_ms(int op)
+static const char* fbfc_basename_or_default(const char* value, const char* fallback)
 {
-    switch (op) {
-    case FBFC_CORE_INIT:
-        return 15000; /* retro_init should return quickly; current bug hangs here */
-    case FBFC_CORE_LOAD_GAME:
-        return 60000;
-    case FBFC_CORE_RUN:
-        return 5000;
-    case FBFC_CORE_STOP:
-        return 3000;
-    default:
-        return 15000;
-    }
+    if (!value || !value[0]) return fallback;
+    return value;
 }
 
-static void fbfc_dump_core_thread_context(const char* reason)
+extern "C" int fbfc_init(const FbneoFlycastCallbacks* callbacks)
 {
-    if (!g_core_thread) {
-        fbfc_log("corethread: context dump skipped, no thread (%s)", reason ? reason : "");
-        return;
-    }
-
-    DWORD suspend_ret = SuspendThread(g_core_thread);
-    if (suspend_ret == (DWORD)-1) {
-        fbfc_log("corethread: SuspendThread failed for context dump (%s) err=%lu", reason ? reason : "", (unsigned long)GetLastError());
-        return;
-    }
-
-#if defined(_M_X64) || defined(__x86_64__)
-    CONTEXT ctx;
-    memset(&ctx, 0, sizeof(ctx));
-    ctx.ContextFlags = CONTEXT_CONTROL;
-    if (GetThreadContext(g_core_thread, &ctx)) {
-        fbfc_log("corethread: TIMEOUT_CONTEXT reason=%s tid=%lu rip=%p rsp=%p rbp=%p",
-            reason ? reason : "",
-            (unsigned long)g_core_tid,
-            (void*)ctx.Rip,
-            (void*)ctx.Rsp,
-            (void*)ctx.Rbp);
-    } else {
-        fbfc_log("corethread: GetThreadContext failed (%s) err=%lu", reason ? reason : "", (unsigned long)GetLastError());
-    }
-#elif defined(_M_IX86) || defined(__i386__)
-    CONTEXT ctx;
-    memset(&ctx, 0, sizeof(ctx));
-    ctx.ContextFlags = CONTEXT_CONTROL;
-    if (GetThreadContext(g_core_thread, &ctx)) {
-        fbfc_log("corethread: TIMEOUT_CONTEXT reason=%s tid=%lu eip=%p esp=%p ebp=%p",
-            reason ? reason : "",
-            (unsigned long)g_core_tid,
-            (void*)ctx.Eip,
-            (void*)ctx.Esp,
-            (void*)ctx.Ebp);
-    } else {
-        fbfc_log("corethread: GetThreadContext failed (%s) err=%lu", reason ? reason : "", (unsigned long)GetLastError());
-    }
-#else
-    fbfc_log("corethread: context dump unsupported on this arch (%s)", reason ? reason : "");
-#endif
-
-    ResumeThread(g_core_thread);
-}
-
-static DWORD WINAPI fbfc_core_thread_proc(void*)
-{
-    fbfc_log("corethread: started tid=%lu stack_reserve=%lu", (unsigned long)GetCurrentThreadId(), 268435456ul);
-
-    for (;;) {
-        WaitForSingleObject(g_core_req_event, INFINITE);
-
-        switch (g_core_req.op) {
-        case FBFC_CORE_INIT:
-            fbfc_log("corethread: begin flycast_retro_init");
-            flycast_retro_init();
-            fbfc_log("corethread: end flycast_retro_init");
-            g_core_req.iret = 1;
-            break;
-
-        case FBFC_CORE_DEINIT:
-            fbfc_log("corethread: begin flycast_retro_deinit");
-            flycast_retro_deinit();
-            fbfc_log("corethread: end flycast_retro_deinit");
-            g_core_req.iret = 1;
-            break;
-
-        case FBFC_CORE_LOAD_GAME:
-            fbfc_log("corethread: begin flycast_retro_load_game");
-            g_core_req.iret = flycast_retro_load_game(g_core_req.game) ? 1 : 0;
-            fbfc_log("corethread: end flycast_retro_load_game ret=%d", g_core_req.iret);
-            break;
-
-        case FBFC_CORE_UNLOAD_GAME:
-            fbfc_log("corethread: begin flycast_retro_unload_game");
-            flycast_retro_unload_game();
-            fbfc_log("corethread: end flycast_retro_unload_game");
-            g_core_req.iret = 1;
-            break;
-
-        case FBFC_CORE_RESET:
-            flycast_retro_reset();
-            g_core_req.iret = 1;
-            break;
-
-        case FBFC_CORE_RUN:
-            flycast_retro_run();
-            g_core_req.iret = 1;
-            break;
-
-        case FBFC_CORE_SERIALIZE_SIZE:
-            g_core_req.sret = flycast_retro_serialize_size();
-            g_core_req.iret = 1;
-            break;
-
-        case FBFC_CORE_SERIALIZE:
-            g_core_req.iret = flycast_retro_serialize(g_core_req.data, g_core_req.size) ? 1 : 0;
-            break;
-
-        case FBFC_CORE_UNSERIALIZE:
-            g_core_req.iret = flycast_retro_unserialize(g_core_req.cdata, g_core_req.size) ? 1 : 0;
-            break;
-
-        case FBFC_CORE_STOP:
-            g_core_req.iret = 1;
-            SetEvent(g_core_done_event);
-            fbfc_log("corethread: stopping");
-            return 0;
-
-        default:
-            g_core_req.iret = 0;
-            break;
-        }
-
-        SetEvent(g_core_done_event);
-    }
-}
-
-static int fbfc_start_core_thread(void)
-{
-    if (g_core_thread) return 1;
-
-    g_core_req_event = CreateEventA(NULL, FALSE, FALSE, NULL);
-    g_core_done_event = CreateEventA(NULL, FALSE, FALSE, NULL);
-    if (!g_core_req_event || !g_core_done_event) {
-        fbfc_log("corethread: failed to create events err=%lu", (unsigned long)GetLastError());
-        return 0;
-    }
-
-    InitializeCriticalSection(&g_core_cs);
-    g_core_cs_ready = 1;
-    memset(&g_core_req, 0, sizeof(g_core_req));
-    g_core_stuck = 0;
-    g_core_timeout_op = FBFC_CORE_NONE;
-
-    g_core_thread = CreateThread(NULL,
-        268435456,
-        fbfc_core_thread_proc,
-        NULL,
-        STACK_SIZE_PARAM_IS_A_RESERVATION,
-        &g_core_tid);
-
-    if (!g_core_thread) {
-        fbfc_log("corethread: CreateThread failed err=%lu", (unsigned long)GetLastError());
-        if (g_core_cs_ready) {
-            DeleteCriticalSection(&g_core_cs);
-            g_core_cs_ready = 0;
-        }
-        CloseHandle(g_core_req_event);
-        CloseHandle(g_core_done_event);
-        g_core_req_event = NULL;
-        g_core_done_event = NULL;
-        return 0;
-    }
-
-    fbfc_log("corethread: created tid=%lu stack_reserve=%lu", (unsigned long)g_core_tid, 268435456ul);
-    return 1;
-}
-
-static int fbfc_core_call(int op,
-    const struct retro_game_info* game = NULL,
-    void* data = NULL,
-    const void* cdata = NULL,
-    size_t size = 0,
-    size_t* sret = NULL)
-{
-    if (!g_core_thread) return 0;
-
-    EnterCriticalSection(&g_core_cs);
-    memset(&g_core_req, 0, sizeof(g_core_req));
-    g_core_req.op = op;
-    g_core_req.game = game;
-    g_core_req.data = data;
-    g_core_req.cdata = cdata;
-    g_core_req.size = size;
-
-    SetEvent(g_core_req_event);
-    DWORD timeout_ms = fbfc_core_timeout_ms(op);
-    DWORD wr = WaitForSingleObject(g_core_done_event, timeout_ms);
-    int ret = 0;
-    if (wr == WAIT_OBJECT_0) {
-        ret = g_core_req.iret;
-        if (sret) *sret = g_core_req.sret;
-    } else {
-        fbfc_log("corethread: operation timeout op=%d wait_ms=%lu tid=%lu", op, (unsigned long)timeout_ms, (unsigned long)g_core_tid);
-        g_core_stuck = 1;
-        g_core_timeout_op = op;
-        fbfc_dump_core_thread_context("core op timeout");
-        if (op == FBFC_CORE_INIT) {
-            fbfc_log("corethread: DIAG_MODE leaving stuck init thread alive for gdb attach");
-            fbfc_log("corethread: keep the FBNeo error dialog open and run gdb_v14_attach_latest.bat now");
-        }
-        ret = 0;
-        if (sret) *sret = 0;
-    }
-    LeaveCriticalSection(&g_core_cs);
-    return ret;
-}
-
-static void fbfc_stop_core_thread(void)
-{
-    if (g_core_thread) {
-        if (g_core_stuck) {
-            if (g_core_timeout_op == FBFC_CORE_INIT) {
-                fbfc_log("corethread: DIAG_MODE not terminating stuck init thread tid=%lu", (unsigned long)g_core_tid);
-                fbfc_log("corethread: attach gdb before closing the FBNeo error dialog; close FBNeo manually after collecting gdb_fbneo_v14_bt.txt");
-                return;
-            }
-            fbfc_log("corethread: terminating stuck core thread tid=%lu", (unsigned long)g_core_tid);
-            TerminateThread(g_core_thread, 1);
-            WaitForSingleObject(g_core_thread, 3000);
-        } else {
-            fbfc_core_call(FBFC_CORE_STOP);
-            WaitForSingleObject(g_core_thread, INFINITE);
-        }
-        CloseHandle(g_core_thread);
-        g_core_thread = NULL;
-        g_core_tid = 0;
-        g_core_stuck = 0;
-        g_core_timeout_op = FBFC_CORE_NONE;
-    }
-
-    if (g_core_req_event) {
-        CloseHandle(g_core_req_event);
-        g_core_req_event = NULL;
-    }
-    if (g_core_done_event) {
-        CloseHandle(g_core_done_event);
-        g_core_done_event = NULL;
-    }
-    if (g_core_cs_ready) {
-        DeleteCriticalSection(&g_core_cs);
-        g_core_cs_ready = 0;
-    }
-}
-#else
-static int fbfc_start_core_thread(void) { return 1; }
-static void fbfc_stop_core_thread(void) { }
-#endif
-
-int fbfc_init(const FbneoFlycastCallbacks* callbacks)
-{
-    if (g_inited) fbfc_shutdown();
-
-    reset_debug_log();
-    fbfc_log("fbfc_init enter");
+    if (g_inited) return 1;
 
     memset(&g_callbacks, 0, sizeof(g_callbacks));
     memset(&g_input, 0, sizeof(g_input));
-    memset(&g_disk_cb, 0, sizeof(g_disk_cb));
-#ifdef RETRO_ENVIRONMENT_SET_DISK_CONTROL_EXT_INTERFACE
-    memset(&g_disk_ext_cb, 0, sizeof(g_disk_ext_cb));
-#endif
-    g_keyboard_cb = NULL;
-
     if (callbacks) g_callbacks = *callbacks;
-    ensure_runtime_dirs();
 
+    reset_debug_log();
+    fbfc_log("fbfc_init enter");
     fbfc_log("setting libretro callbacks");
+
     flycast_retro_set_environment(lr_environment_cb);
     flycast_retro_set_video_refresh(lr_video_cb);
     flycast_retro_set_audio_sample(lr_audio_cb);
@@ -1097,127 +1107,147 @@ int fbfc_init(const FbneoFlycastCallbacks* callbacks)
     flycast_retro_set_input_poll(lr_input_poll_cb);
     flycast_retro_set_input_state(lr_input_state_cb);
 
+#if defined(_WIN32)
+    /*
+     * Safe-init diagnostic build:
+     * Do not install the adapter's vectored exception handler before Flycast
+     * installs its own fault handler. The previous log stopped immediately
+     * after Flycast's VMEM mapping, so this tests for handler-chain conflict.
+     */
+    fbfc_log("adapter vectored exception handler disabled in safe-init build");
+#endif
+
     fbfc_log("before flycast_retro_init api=%u", flycast_retro_api_version());
-
-#if defined(_WIN32)
-    if (!g_fbfc_veh) {
-        g_fbfc_veh = AddVectoredExceptionHandler(1, fbfc_vectored_exception_handler);
-        fbfc_log("vectored exception handler installed=%p", g_fbfc_veh);
-    }
-#endif
-
-    if (!fbfc_start_core_thread()) {
-        fbfc_log("failed to start Flycast core thread");
-        return 0;
-    }
-
-#if defined(_WIN32)
-    fbfc_log("calling flycast_retro_init on dedicated core thread");
-    if (!fbfc_core_call(FBFC_CORE_INIT)) {
-        fbfc_log("flycast_retro_init failed or core thread did not return");
-        fbfc_stop_core_thread();
-        return 0;
-    }
-#else
     flycast_retro_init();
-#endif
-
     fbfc_log("after flycast_retro_init");
 
-    struct retro_system_info info;
-    memset(&info, 0, sizeof(info));
-    flycast_retro_get_system_info(&info);
-    fbfc_log("core info library=%s version=%s valid_ext=%s need_fullpath=%d block_extract=%d",
-        info.library_name ? info.library_name : "",
-        info.library_version ? info.library_version : "",
-        info.valid_extensions ? info.valid_extensions : "",
-        info.need_fullpath ? 1 : 0,
-        info.block_extract ? 1 : 0);
+    struct retro_system_info sys;
+    memset(&sys, 0, sizeof(sys));
+    flycast_retro_get_system_info(&sys);
+    fbfc_log("system info: library=%s version=%s need_fullpath=%d block_extract=%d valid_ext=%s",
+             sys.library_name ? sys.library_name : "",
+             sys.library_version ? sys.library_version : "",
+             sys.need_fullpath ? 1 : 0,
+             sys.block_extract ? 1 : 0,
+             sys.valid_extensions ? sys.valid_extensions : "");
+
+    struct retro_system_av_info av;
+    memset(&av, 0, sizeof(av));
+    flycast_retro_get_system_av_info(&av);
+    update_av_info(&av);
 
     g_inited = 1;
-    g_loaded = 0;
+    fbfc_log("fbfc_init leave ok");
     return 1;
 }
 
-void fbfc_shutdown(void)
+extern "C" void fbfc_shutdown(void)
 {
-    fbfc_log("fbfc_shutdown enter loaded=%d inited=%d", g_loaded, g_inited);
+    fbfc_log("fbfc_shutdown enter");
+
+    if (g_loaded) {
+        fbfc_log("before flycast_retro_unload_game");
+        flycast_retro_unload_game();
+        fbfc_log("after flycast_retro_unload_game");
+        g_loaded = 0;
+    }
+
+    fbfc_hw_destroy();
+
+    if (g_inited) {
+        fbfc_log("before flycast_retro_deinit");
+        flycast_retro_deinit();
+        fbfc_log("after flycast_retro_deinit");
+        g_inited = 0;
+    }
 
 #if defined(_WIN32)
-    if (g_loaded) fbfc_core_call(FBFC_CORE_UNLOAD_GAME);
-    if (g_inited) fbfc_core_call(FBFC_CORE_DEINIT);
-    g_loaded = 0;
-    g_inited = 0;
-    fbfc_stop_core_thread();
     if (g_fbfc_veh) {
         RemoveVectoredExceptionHandler(g_fbfc_veh);
         g_fbfc_veh = NULL;
-        fbfc_log("vectored exception handler removed");
     }
-#else
-    if (g_loaded) flycast_retro_unload_game();
-    if (g_inited) flycast_retro_deinit();
-    g_loaded = 0;
-    g_inited = 0;
 #endif
 
-    memset(&g_callbacks, 0, sizeof(g_callbacks));
+    g_game_zip_path.clear();
+    fbfc_log("fbfc_shutdown leave");
 }
 
-int fbfc_load_game(const FbneoFlycastGameInfo* game)
+extern "C" int fbfc_load_game(const FbneoFlycastGameInfo* game)
 {
-    fbfc_log("fbfc_load_game enter inited=%d game=%p", g_inited, (const void*)game);
-    if (!g_inited) return 0;
-    if (!game) return 0;
-    if (!game->roms || game->rom_count <= 0) {
-        fbfc_log("no rom entries supplied");
+    if (!g_inited) {
+        fbfc_log("fbfc_load_game called before fbfc_init");
+        return 0;
+    }
+    if (!game || !game->roms || game->rom_count <= 0) {
+        fbfc_log("fbfc_load_game invalid game package");
         return 0;
     }
 
-    fbfc_log("game driver=%s zip=%s bios=%s system=%s platform=%d input=%d rom_count=%d",
-        game->driver_name ? game->driver_name : "",
-        game->zip_name ? game->zip_name : "",
-        game->bios_zip_name ? game->bios_zip_name : "",
-        game->system_name ? game->system_name : "",
-        game->platform,
-        game->input_type,
-        game->rom_count);
+    if (g_loaded) {
+        fbfc_unload_game();
+    }
 
+    ensure_runtime_dirs();
     stage_bios_files(game);
 
-    std::string zip_name;
-    if (game->zip_name && game->zip_name[0]) zip_name = game->zip_name;
-    if (zip_name.empty()) {
-        zip_name = (game->driver_name && game->driver_name[0]) ? game->driver_name : "fbneo_flycast_game";
-        if (zip_name.find('.') == std::string::npos) zip_name += ".zip";
-    }
+    const char* driver = fbfc_basename_or_default(game->driver_name, "fbneo_awave_game");
+    g_game_zip_path = g_content_dir + "/" + driver + ".zip";
 
-    g_game_zip_path = g_content_dir + "/" + zip_name;
+    fbfc_log("building Flycast content zip: driver=%s zip=%s bios=%s system=%s platform=%d input=%d path=%s",
+             game->driver_name ? game->driver_name : "",
+             game->zip_name ? game->zip_name : "",
+             game->bios_zip_name ? game->bios_zip_name : "",
+             game->system_name ? game->system_name : "",
+             game->platform,
+             game->input_type,
+             g_game_zip_path.c_str());
+
     if (!write_store_zip(g_game_zip_path.c_str(), game->roms, game->rom_count)) {
-        fbfc_log("failed to build content zip for %s", game->driver_name ? game->driver_name : "");
+        fbfc_log("failed to build Flycast content zip");
         return 0;
     }
 
-    struct retro_game_info gi;
-    memset(&gi, 0, sizeof(gi));
-    gi.path = g_game_zip_path.c_str();
-    gi.data = NULL;
-    gi.size = 0;
-    gi.meta = NULL;
+    struct retro_game_info lr_game;
+    memset(&lr_game, 0, sizeof(lr_game));
+    lr_game.path = g_game_zip_path.c_str();
+    lr_game.data = NULL;
+    lr_game.size = 0;
+    lr_game.meta = NULL;
 
-    fbfc_log("before flycast_retro_load_game path=%s", gi.path ? gi.path : "");
-
-#if defined(_WIN32)
-    if (!fbfc_core_call(FBFC_CORE_LOAD_GAME, &gi)) {
-#else
-    if (!flycast_retro_load_game(&gi)) {
-#endif
-        fbfc_log("flycast_retro_load_game returned false: %s", g_game_zip_path.c_str());
+    fbfc_log("before flycast_retro_load_game path=%s", lr_game.path ? lr_game.path : "");
+    bool ok = flycast_retro_load_game(&lr_game);
+    fbfc_log("after flycast_retro_load_game ret=%d", ok ? 1 : 0);
+    if (!ok) {
+        /*
+         * Important for FBNeo: a failed DrvInit() can be followed by another
+         * immediate init attempt in the same process. If Flycast is left in
+         * Error/Terminated state, the next retro_init() can hit verify()/trap
+         * and show Guru Meditation #C000001D. Clean the libretro core here
+         * and mark the adapter as not initialized so fbfc_shutdown() will not
+         * double-deinit it.
+         */
+        fbfc_log("flycast_retro_load_game failed; cleaning up core before returning failure");
+        fbfc_log("cleanup after failed load: before flycast_retro_unload_game");
+        flycast_retro_unload_game();
+        fbfc_log("cleanup after failed load: after flycast_retro_unload_game");
+        fbfc_hw_destroy();
+        fbfc_log("cleanup after failed load: before flycast_retro_deinit");
+        flycast_retro_deinit();
+        fbfc_log("cleanup after failed load: after flycast_retro_deinit");
         g_loaded = 0;
+        g_inited = 0;
         return 0;
     }
 
-    fbfc_log("after flycast_retro_load_game");
+    fbfc_hw_call_context_reset_if_needed();
+
+    unsigned device = RETRO_DEVICE_JOYPAD;
+    if (game->input_type == FBFC_INPUT_LIGHTGUN) {
+        device = RETRO_DEVICE_LIGHTGUN;
+    }
+    for (unsigned port = 0; port < 4; port++) {
+        flycast_retro_set_controller_port_device(port, device);
+    }
 
     struct retro_system_av_info av;
     memset(&av, 0, sizeof(av));
@@ -1225,77 +1255,57 @@ int fbfc_load_game(const FbneoFlycastGameInfo* game)
     update_av_info(&av);
 
     g_loaded = 1;
+    fbfc_log("fbfc_load_game leave ok");
     return 1;
 }
 
-void fbfc_unload_game(void)
+extern "C" void fbfc_unload_game(void)
 {
-    fbfc_log("fbfc_unload_game loaded=%d", g_loaded);
-    if (g_loaded) {
-#if defined(_WIN32)
-        fbfc_core_call(FBFC_CORE_UNLOAD_GAME);
-#else
-        flycast_retro_unload_game();
-#endif
-    }
+    if (!g_inited || !g_loaded) return;
+    fbfc_log("fbfc_unload_game enter");
+    flycast_retro_unload_game();
+    fbfc_hw_destroy();
     g_loaded = 0;
+    fbfc_log("fbfc_unload_game leave");
 }
 
-void fbfc_reset(void)
+extern "C" void fbfc_reset(void)
 {
-    if (!g_loaded) return;
-#if defined(_WIN32)
-    fbfc_core_call(FBFC_CORE_RESET);
-#else
+    if (!g_inited || !g_loaded) return;
+    fbfc_log("fbfc_reset");
     flycast_retro_reset();
-#endif
 }
 
-int fbfc_run_frame(const FbneoFlycastInputState* input)
+extern "C" int fbfc_run_frame(const FbneoFlycastInputState* input)
 {
-    if (!g_loaded) return 0;
+    if (!g_inited || !g_loaded) return 0;
     if (input) g_input = *input;
-#if defined(_WIN32)
-    return fbfc_core_call(FBFC_CORE_RUN);
-#else
+    fbfc_hw_make_current();
     flycast_retro_run();
     return 1;
-#endif
 }
 
-int fbfc_serialize_size(void)
+extern "C" int fbfc_serialize_size(void)
 {
-    if (!g_loaded) return 0;
-#if defined(_WIN32)
-    size_t s = 0;
-    if (!fbfc_core_call(FBFC_CORE_SERIALIZE_SIZE, NULL, NULL, NULL, 0, &s)) return 0;
-    return (int)s;
-#else
-    return (int)flycast_retro_serialize_size();
-#endif
+    if (!g_inited || !g_loaded) return 0;
+    size_t size = flycast_retro_serialize_size();
+    if (size > (size_t)0x7fffffff) return 0;
+    return (int)size;
 }
 
-int fbfc_serialize(void* data, int size)
+extern "C" int fbfc_serialize(void* data, int size)
 {
-    if (!g_loaded || !data || size <= 0) return 0;
-#if defined(_WIN32)
-    return fbfc_core_call(FBFC_CORE_SERIALIZE, NULL, data, NULL, (size_t)size);
-#else
+    if (!g_inited || !g_loaded || !data || size <= 0) return 0;
     return flycast_retro_serialize(data, (size_t)size) ? 1 : 0;
-#endif
 }
 
-int fbfc_unserialize(const void* data, int size)
+extern "C" int fbfc_unserialize(const void* data, int size)
 {
-    if (!g_loaded || !data || size <= 0) return 0;
-#if defined(_WIN32)
-    return fbfc_core_call(FBFC_CORE_UNSERIALIZE, NULL, NULL, data, (size_t)size);
-#else
+    if (!g_inited || !g_loaded || !data || size <= 0) return 0;
     return flycast_retro_unserialize(data, (size_t)size) ? 1 : 0;
-#endif
 }
 
-int fbfc_get_av_info(int* width, int* height, int* sample_rate, double* fps)
+extern "C" int fbfc_get_av_info(int* width, int* height, int* sample_rate, double* fps)
 {
     if (width) *width = g_width;
     if (height) *height = g_height;

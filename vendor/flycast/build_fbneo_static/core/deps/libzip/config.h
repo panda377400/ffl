@@ -9,7 +9,7 @@
 #define HAVE__CLOSE
 #define HAVE__DUP
 #define HAVE__FDOPEN
-/* #undef HAVE__FILENO */
+#define HAVE__FILENO
 #define HAVE__SETMODE
 #define HAVE__SNPRINTF
 #define HAVE__SNPRINTF_S
@@ -43,7 +43,7 @@
 #define HAVE_SETMODE
 #define HAVE_SNPRINTF
 /* #undef HAVE_SNPRINTF_S */
-#define HAVE_STRCASECMP
+/* #undef HAVE_STRCASECMP */
 #define HAVE_STRDUP
 #define HAVE_STRERROR_S
 /* #undef HAVE_STRERRORLEN_S */

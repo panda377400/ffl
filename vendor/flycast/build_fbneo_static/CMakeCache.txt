@@ -1128,7 +1128,7 @@ HAVE_STDINT_H:INTERNAL=1
 //Have include stdint.h
 HAVE_STDINT_H_LIBZIP:INTERNAL=1
 //Have symbol strcasecmp
-HAVE_STRCASECMP:INTERNAL=1
+HAVE_STRCASECMP:INTERNAL=
 //Have function strdup
 HAVE_STRDUP:INTERNAL=1
 //Have function strerrorlen_s
@@ -1166,7 +1166,7 @@ HAVE__DUP:INTERNAL=1
 //Have function _fdopen
 HAVE__FDOPEN:INTERNAL=1
 //Have function _fileno
-HAVE__FILENO:INTERNAL=
+HAVE__FILENO:INTERNAL=1
 //Have function _setmode
 HAVE__SETMODE:INTERNAL=1
 //Have symbol _snprintf
