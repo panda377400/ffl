@@ -21,7 +21,9 @@ AwaveVideoMode AwaveVideoGetMode()
 		if (!strcmp(env, "cpu") || !strcmp(env, "readback")) return AWAVE_VIDEO_CPU_FALLBACK;
 	}
 
-	return AWAVE_VIDEO_CPU_FALLBACK;
+	// Route A: try HW direct present first; if the shim cannot provide a usable
+	// texture/FBO, the bridge will automatically fall back to CPU readback.
+	return AWAVE_VIDEO_HW_TEXTURE;
 }
 
 void AwaveVideoSetCpuFrame(const void* pixels, INT32 width, INT32 height, INT32 pitchBytes)
@@ -65,7 +67,7 @@ void AwaveVideoSetHwFrame(UINT32 texture, UINT32 framebuffer, INT32 width, INT32
 	g_hw.width = width;
 	g_hw.height = height;
 	g_hw.upsideDown = upsideDown;
-	g_hw.valid = texture != 0 && width > 0 && height > 0;
+	g_hw.valid = (width > 0 && height > 0 && (texture != 0 || framebuffer != 0));
 }
 
 INT32 AwaveVideoDrawCpu()

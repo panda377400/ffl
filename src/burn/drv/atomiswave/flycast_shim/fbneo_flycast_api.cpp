@@ -25,6 +25,18 @@
 #ifndef GL_UNSIGNED_INT_8_8_8_8_REV
 #define GL_UNSIGNED_INT_8_8_8_8_REV 0x8367
 #endif
+#ifndef GL_FRAMEBUFFER_BINDING
+#define GL_FRAMEBUFFER_BINDING 0x8CA6
+#endif
+#ifndef GL_DRAW_FRAMEBUFFER_BINDING
+#define GL_DRAW_FRAMEBUFFER_BINDING 0x8CA6
+#endif
+#ifndef GL_READ_FRAMEBUFFER_BINDING
+#define GL_READ_FRAMEBUFFER_BINDING 0x8CAA
+#endif
+#ifndef GL_TEXTURE_BINDING_2D
+#define GL_TEXTURE_BINDING_2D 0x8069
+#endif
 #define FBFC_MKDIR(path) _mkdir(path)
 #if defined(__MINGW32__) && !defined(FBNEO_FLYCAST_MINGW_STAT64I32_COMPAT)
 #define FBNEO_FLYCAST_MINGW_STAT64I32_COMPAT 1
@@ -102,11 +114,16 @@ static PVOID g_fbfc_veh = NULL;
 static HWND g_hw_hwnd = NULL;
 static HDC g_hw_hdc = NULL;
 static HGLRC g_hw_hglrc = NULL;
+static HDC g_host_hdc = NULL;
+static HGLRC g_host_hglrc = NULL;
+static int g_using_host_context = 0;
+static int g_share_attempted = 0;
 static int g_hw_ready = 0;
 static int g_hw_reset_called = 0;
 static struct retro_hw_render_callback g_hw_cb;
 static std::vector<uint32_t> g_hw_readback;
 static std::vector<uint32_t> g_hw_readback_staging;
+static unsigned g_hw_probe_count = 0;
 
 static LRESULT CALLBACK fbfc_hw_wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 {
@@ -115,13 +132,63 @@ static LRESULT CALLBACK fbfc_hw_wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM l
 
 static bool fbfc_hw_make_current(void)
 {
+    if (g_using_host_context && g_host_hdc && g_host_hglrc) {
+        return wglMakeCurrent(g_host_hdc, g_host_hglrc) ? true : false;
+    }
     if (!g_hw_hdc || !g_hw_hglrc) return false;
     return wglMakeCurrent(g_hw_hdc, g_hw_hglrc) ? true : false;
+}
+
+static bool fbfc_hw_capture_host_context(const char* why)
+{
+    HGLRC rc = wglGetCurrentContext();
+    HDC dc = wglGetCurrentDC();
+    if (!rc || !dc) {
+        fbfc_log("WGL: no current host context available during %s", why ? why : "capture");
+        return false;
+    }
+    g_host_hglrc = rc;
+    g_host_hdc = dc;
+    fbfc_log("WGL: captured host context during %s hglrc=%p hdc=%p", why ? why : "capture", g_host_hglrc, g_host_hdc);
+    return true;
+}
+
+static bool fbfc_hw_try_share_with_host(void)
+{
+    if (g_share_attempted) return g_using_host_context || (g_host_hglrc && g_hw_hglrc);
+    g_share_attempted = 1;
+
+    if (!g_host_hglrc || !g_host_hdc) {
+        if (!fbfc_hw_capture_host_context("share-attempt")) return false;
+    }
+
+    if (!g_host_hglrc || !g_host_hdc) return false;
+
+    // Prefer using the host context directly when available. This is the only
+    // path that can yield non-zero default-framebuffer objects in the current
+    // FBNeo integration.
+    g_using_host_context = 1;
+    fbfc_log("WGL: using host context directly for Flycast HW render");
+
+    if (g_hw_hglrc && g_hw_hglrc != g_host_hglrc) {
+        BOOL shared = wglShareLists(g_host_hglrc, g_hw_hglrc);
+        fbfc_log("WGL: wglShareLists(host -> hidden) ret=%d err=%lu", (int)shared, (unsigned long)GetLastError());
+    }
+    return true;
 }
 
 static bool fbfc_hw_init_window(void)
 {
     if (g_hw_ready) return fbfc_hw_make_current();
+
+    // Best case: FBNeo already has a current GL context on this thread.
+    // Use it directly so Flycast renders into the same context namespace.
+    if (fbfc_hw_capture_host_context("hw-init")) {
+        g_using_host_context = 1;
+        g_hw_ready = 1;
+        fbfc_log("WGL: using existing host OpenGL context directly");
+        return fbfc_hw_make_current();
+    }
 
     HINSTANCE inst = GetModuleHandleA(NULL);
     static ATOM cls = 0;
@@ -243,6 +310,14 @@ static void fbfc_hw_destroy(void)
     memset(&g_hw_cb, 0, sizeof(g_hw_cb));
     g_hw_readback.clear();
     g_hw_readback_staging.clear();
+    g_hw_probe_count = 0;
+    if (g_using_host_context) {
+        wglMakeCurrent(NULL, NULL);
+        g_host_hdc = NULL;
+        g_host_hglrc = NULL;
+        g_using_host_context = 0;
+        g_share_attempted = 0;
+    }
     if (g_hw_hglrc) {
         wglMakeCurrent(NULL, NULL);
         wglDeleteContext(g_hw_hglrc);
@@ -491,13 +566,52 @@ static void lr_video_cb(const void* data, unsigned width, unsigned height, size_
     if (data == RETRO_HW_FRAME_BUFFER_VALID) {
 #if defined(_WIN32)
         if (!g_callbacks.video) return;
+
+        if (!g_using_host_context) {
+            fbfc_hw_capture_host_context("video_cb");
+            fbfc_hw_try_share_with_host();
+        }
+
         if (!fbfc_hw_make_current()) {
             fbfc_log("WGL: video_cb HW frame but context is not current");
             return;
         }
+
         int w = width ? (int)width : g_width;
         int h = height ? (int)height : g_height;
         if (w <= 0 || h <= 0 || w > 8192 || h > 8192) return;
+
+        GLint draw_fbo = 0;
+        GLint read_fbo = 0;
+        GLint tex2d = 0;
+        glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &draw_fbo);
+        glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &read_fbo);
+        glGetIntegerv(GL_TEXTURE_BINDING_2D, &tex2d);
+
+        FbneoFlycastVideoFrame frame;
+        memset(&frame, 0, sizeof(frame));
+        frame.width = w;
+        frame.height = h;
+        frame.pitch_bytes = w * 4;
+        frame.texture = (uint32_t)tex2d;
+        frame.framebuffer = (uint32_t)(draw_fbo ? draw_fbo : read_fbo);
+        frame.upside_down = 1;
+        frame.valid_hw = (frame.width > 0 && frame.height > 0 && (frame.texture != 0 || frame.framebuffer != 0));
+
+        if (((++g_hw_probe_count) & 0x3f) == 0) {
+            fbfc_log("WGL: HW probe #%u tex=%u draw_fbo=%u read_fbo=%u size=%dx%d valid_hw=%d host=%d",
+                g_hw_probe_count, (unsigned)frame.texture, (unsigned)draw_fbo, (unsigned)read_fbo,
+                w, h, frame.valid_hw ? 1 : 0, g_using_host_context ? 1 : 0);
+        }
+
+        if (frame.valid_hw) {
+            frame.valid_cpu = 0;
+            frame.pixels = NULL;
+            g_callbacks.video(&frame, g_callbacks.user);
+            if (!g_using_host_context && g_hw_hdc) SwapBuffers(g_hw_hdc);
+            return;
+        }
+
         const size_t pixel_count = (size_t)w * (size_t)h;
         const size_t row_bytes = (size_t)w * sizeof(uint32_t);
         g_hw_readback_staging.resize(pixel_count);
@@ -510,21 +624,21 @@ static void lr_video_cb(const void* data, unsigned width, unsigned height, size_
             fbfc_log("WGL: glReadPixels GL_BGRA failed err=0x%04x", (unsigned)err);
             return;
         }
+
         for (int y = 0; y < h; y++) {
             const uint8_t* src = (const uint8_t*)g_hw_readback_staging.data() + (size_t)(h - 1 - y) * row_bytes;
             uint8_t* dst = (uint8_t*)g_hw_readback.data() + (size_t)y * row_bytes;
             memcpy(dst, src, row_bytes);
         }
-        FbneoFlycastVideoFrame frame;
-        memset(&frame, 0, sizeof(frame));
+
         frame.pixels = g_hw_readback.data();
-        frame.width = w;
-        frame.height = h;
-        frame.pitch_bytes = w * 4;
         frame.valid_cpu = 1;
         frame.valid_hw = 0;
+        frame.texture = 0;
+        frame.framebuffer = 0;
+        frame.upside_down = 0;
         g_callbacks.video(&frame, g_callbacks.user);
-        SwapBuffers(g_hw_hdc);
+        if (!g_using_host_context && g_hw_hdc) SwapBuffers(g_hw_hdc);
 #endif
         return;
     }
@@ -906,14 +1020,17 @@ static bool lr_environment_cb(unsigned cmd, void* data)
                 return false;
             }
             if (!fbfc_hw_init_window()) {
-                fbfc_log("HW render: failed to create hidden WGL context");
+                fbfc_log("HW render: failed to create WGL context");
                 return false;
             }
+
+            fbfc_hw_try_share_with_host();
+
             cb->get_current_framebuffer = fbfc_hw_get_current_framebuffer;
             cb->get_proc_address = fbfc_hw_get_proc_address;
             g_hw_cb = *cb;
             g_hw_reset_called = 0;
-            fbfc_log("HW render: accepted OpenGL through hidden WGL + CPU readback (clean-v10; direct-FBO not wired yet)");
+            fbfc_log("HW render: accepted OpenGL through %s", g_using_host_context ? "host WGL context" : "hidden WGL + CPU readback");
             return true;
         }
 #else
