@@ -54,6 +54,7 @@
 #include <cstdio>
 #include <cstdarg>
 
+// FBNeo safe build: SH4 dynarec is intentionally disabled because this port crashes in recompiler->Init().
 // FBNeo/Flycast port diagnostic breadcrumbs.
 // Writes directly to the same runtime log as the FBNeo shim, independent of libretro log_cb.
 static void fbneo_emulator_diag(const char* fmt, ...)
