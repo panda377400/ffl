@@ -190,6 +190,7 @@ static double vib_delta[4];
 unsigned per_content_vmus = 0;
 
 static bool first_run = true;
+static bool fbneo_emu_inited = false;
 static bool rotate_screen;
 static bool rotate_game;
 static bool is_pal;
@@ -341,8 +342,6 @@ void retro_init()
 	memset(device_type, -1, sizeof(device_type));
 	fbneo_core_diag("retro_init: first_run/device_type reset done");
 	
-	static bool emuInited;
-
 	// Logging
 	struct retro_log_callback log;
 	fbneo_core_diag("retro_init: before GET_LOG_INTERFACE");
@@ -416,16 +415,16 @@ void retro_init()
 	i18n::init();
 	fbneo_core_diag("retro_init: after i18n::init");
 
-	fbneo_core_diag("retro_init: before emu.init emuInited=%d", emuInited ? 1 : 0);
+	fbneo_core_diag("retro_init: before emu.init fbneo_emu_inited=%d", fbneo_emu_inited ? 1 : 0);
 #if defined(__APPLE__) || (defined(__GNUC__) && defined(__linux__) && !defined(__ANDROID__))
-	if (!emuInited)
+	if (!fbneo_emu_inited)
 #else
-	(void)emuInited;
+	(void)fbneo_emu_inited;
 #endif
 		emu.init();
 	fbneo_core_diag("retro_init: after emu.init");
-	emuInited = true;
-	fbneo_core_diag("retro_init: leave emuInited=%d", emuInited ? 1 : 0);
+	fbneo_emu_inited = true;
+	fbneo_core_diag("retro_init: leave fbneo_emu_inited=%d", fbneo_emu_inited ? 1 : 0);
 }
 
 void retro_deinit()
@@ -443,8 +442,14 @@ void retro_deinit()
 	
 #if defined(__APPLE__) || (defined(__GNUC__) && defined(__linux__) && !defined(__ANDROID__))
 	addrspace::release();
+	fbneo_emu_inited = false;
 #else
-	emu.term();
+	if (fbneo_emu_inited) {
+		fbneo_core_diag("retro_deinit: before emu.term");
+		emu.term();
+		fbneo_core_diag("retro_deinit: after emu.term");
+	}
+	fbneo_emu_inited = false;
 #endif
 	libretro_supports_bitmasks = false;
 	categoriesSupported = false;
@@ -463,6 +468,7 @@ void retro_deinit()
 	LogManager::Shutdown();
 
 	retro_audio_deinit();
+	fbneo_core_diag("retro_deinit: leave fbneo_emu_inited=%d", fbneo_emu_inited ? 1 : 0);
 }
 
 static bool set_variable_visibility(void)

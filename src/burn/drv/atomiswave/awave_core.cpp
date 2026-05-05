@@ -1,4 +1,5 @@
 #include "awave_core.h"
+
 #include "awave_content.h"
 #include "awave_audio.h"
 #include "awave_video.h"
@@ -56,7 +57,6 @@ static void AwaveAudioCallback(const INT16* stereo, int frames, void* user)
 static void AwaveVideoCallback(const FbneoFlycastVideoFrame* frame, void* user)
 {
 	(void)user;
-
 	if (frame == NULL) return;
 
 	if (frame->valid_hw) {
@@ -74,10 +74,8 @@ static void FillInputState(FbneoFlycastInputState& out)
 
 	for (INT32 p = 0; p < 4; p++) {
 		out.pad[p] = AwaveInputGetPad(p);
-
 		for (INT32 a = 0; a < 8; a++) out.analog[p][a] = AwaveInputGetAnalog(p, a);
 		for (INT32 b = 0; b < 4; b++) out.analog_button[p][b] = AwaveInputGetAnalogButton(p, b);
-
 		AwaveInputGetLightgun(p, &out.gun_x[p], &out.gun_y[p], &out.gun_offscreen[p], &out.gun_reload[p]);
 	}
 }
@@ -85,11 +83,9 @@ static void FillInputState(FbneoFlycastInputState& out)
 static INT32 BuildFlycastGameInfo(std::vector<FbneoFlycastRomEntry>& roms, FbneoFlycastGameInfo& game)
 {
 	roms.clear();
-
 	if (g_cfg == NULL) return 1;
 
 	roms.reserve(g_content.entries.size());
-
 	for (size_t i = 0; i < g_content.entries.size(); i++) {
 		FbneoFlycastRomEntry r;
 		r.filename = g_content.entries[i].filename;
@@ -108,13 +104,13 @@ static INT32 BuildFlycastGameInfo(std::vector<FbneoFlycastRomEntry>& roms, Fbneo
 	game.input_type = ToFbfcInput(g_cfg->inputType);
 	game.roms = roms.empty() ? NULL : roms.data();
 	game.rom_count = (int)roms.size();
+
 	return 0;
 }
 
 INT32 NaomiCoreInit(const NaomiGameConfig* config)
 {
 	AwaveTrace(_T("NaomiCoreInit enter"));
-
 	NaomiCoreExit();
 
 	if (config == NULL) {
@@ -123,7 +119,6 @@ INT32 NaomiCoreInit(const NaomiGameConfig* config)
 	}
 
 	g_cfg = config;
-
 	bprintf(0, _T("[AW] driver=%S zip=%S bios=%S system=%S platform=%d input=%u\n"),
 		config->driverName ? config->driverName : "(null)",
 		config->zipName ? config->zipName : "(null)",
@@ -176,7 +171,6 @@ INT32 NaomiCoreInit(const NaomiGameConfig* config)
 		NaomiCoreExit();
 		return 1;
 	}
-
 	g_coreInited = true;
 	AwaveTrace(_T("after fbfc_init"));
 
@@ -213,6 +207,7 @@ INT32 NaomiCoreExit()
 	AwaveVideoReset();
 	AwaveInputResetRuntime();
 	g_cfg = NULL;
+
 	return 0;
 }
 
@@ -229,6 +224,8 @@ INT32 NaomiCoreReset()
 
 INT32 NaomiCoreFrame()
 {
+	static UINT32 s_draw_fail_count = 0;
+
 	if (!g_gameLoaded) return 1;
 
 	if (g_makeCurrent) g_makeCurrent(g_oglContext);
@@ -242,6 +239,18 @@ INT32 NaomiCoreFrame()
 		AwaveAudioRender(pBurnSoundOut, nBurnSoundLen);
 	}
 
+	// FBNeo does not guarantee that the driver's Draw callback is called after
+	// every Frame callback.  Flycast, however, delivers frames during
+	// fbfc_run_frame().  Copy the latest CPU-readback frame into pBurnDraw here
+	// so ports that only advance Frame() do not show a permanent black screen.
+	if (pBurnDraw) {
+		const INT32 drawRet = NaomiCoreDraw();
+		if (drawRet && ((s_draw_fail_count++ & 0x3f) == 0)) {
+			bprintf(0, _T("[AW] NaomiCoreFrame: NaomiCoreDraw returned %d pBurnDraw=%p nBurnBpp=%d nBurnPitch=%d\n"),
+				drawRet, pBurnDraw, nBurnBpp, nBurnPitch);
+		}
+	}
+
 	if (g_doneCurrent) g_doneCurrent(g_oglContext);
 
 	return ret;
@@ -250,6 +259,7 @@ INT32 NaomiCoreFrame()
 INT32 NaomiCoreDraw()
 {
 	if (AwaveVideoUsingHwDirectPresent()) return 0;
+
 	return AwaveVideoDrawCpu();
 }
 

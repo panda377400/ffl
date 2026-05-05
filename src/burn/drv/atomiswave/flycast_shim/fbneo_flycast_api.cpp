@@ -7,6 +7,7 @@
 #include <stdarg.h>
 #include <errno.h>
 #include <time.h>
+#include <stdlib.h>
 #include <string>
 #include <vector>
 
@@ -807,8 +808,8 @@ static const FbfcCoreOptionValue g_core_option_values[] = {
     { "reicast_enable_dsp", "disabled" },
     { "reicast_region", "Default" },
     { "reicast_language", "Default" },
-    { "flycast_cpu_mode", "interpreter" },
-    { "reicast_cpu_mode", "interpreter" },
+    { "flycast_cpu_mode", "dynamic_recompiler" },
+    { "reicast_cpu_mode", "dynamic_recompiler" },
     { NULL, NULL }
 };
 
@@ -1052,6 +1053,13 @@ static bool lr_environment_cb(unsigned cmd, void* data)
         return true;
 #endif
 
+
+#ifdef RETRO_ENVIRONMENT_GET_FASTFORWARDING
+    case RETRO_ENVIRONMENT_GET_FASTFORWARDING:
+        if (data) *(bool*)data = false;
+        return true;
+#endif
+
 #ifdef RETRO_ENVIRONMENT_GET_TARGET_REFRESH_RATE
     case RETRO_ENVIRONMENT_GET_TARGET_REFRESH_RATE:
         if (data) *(float*)data = 60.0f;
@@ -1090,13 +1098,24 @@ static const char* fbfc_basename_or_default(const char* value, const char* fallb
 
 extern "C" int fbfc_init(const FbneoFlycastCallbacks* callbacks)
 {
-    if (g_inited) return 1;
-
     memset(&g_callbacks, 0, sizeof(g_callbacks));
     memset(&g_input, 0, sizeof(g_input));
     if (callbacks) g_callbacks = *callbacks;
 
     reset_debug_log();
+
+    if (g_inited) {
+        fbfc_log("fbfc_init enter: core already initialized; refreshing callbacks only");
+        flycast_retro_set_environment(lr_environment_cb);
+        flycast_retro_set_video_refresh(lr_video_cb);
+        flycast_retro_set_audio_sample(lr_audio_cb);
+        flycast_retro_set_audio_sample_batch(lr_audio_batch_cb);
+        flycast_retro_set_input_poll(lr_input_poll_cb);
+        flycast_retro_set_input_state(lr_input_state_cb);
+        fbfc_log("fbfc_init leave ok (callbacks refreshed)");
+        return 1;
+    }
+
     fbfc_log("fbfc_init enter");
     fbfc_log("setting libretro callbacks");
 
@@ -1155,7 +1174,7 @@ extern "C" void fbfc_shutdown(void)
     fbfc_hw_destroy();
 
     if (g_inited) {
-        fbfc_log("before flycast_retro_deinit");
+        fbfc_log("before flycast_retro_deinit (hard deinit; safe after libretro emu flag reset)");
         flycast_retro_deinit();
         fbfc_log("after flycast_retro_deinit");
         g_inited = 0;
