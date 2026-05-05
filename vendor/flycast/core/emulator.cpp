@@ -554,14 +554,18 @@ void Emulator::init()
 	reios_init();
 	fbneo_emulator_diag("Emulator::init after reios_init");
 
+
 	// FBNeo port diagnostic fallback:
-	// On MinGW/FBNeo the SH4 x64 recompiler currently hangs inside recompiler->Init().
-	// Force interpreter mode and do not instantiate/init the recompiler at all, so retro_init() can return.
+	// In the embedded MinGW/FBNeo path the SH4 x64 recompiler can crash or hang
+	// inside recompiler->Init().  Force interpreter mode so retro_init() can
+	// complete and game loading remains stable while the renderer/frontend is
+	// still CPU-readback based.
 #if FEAT_SHREC != DYNAREC_NONE
 	fbneo_emulator_diag("Emulator::init FBNEO_FORCE_INTERPRETER: DynarecEnabled before override=%d", config::DynarecEnabled ? 1 : 0);
 	config::DynarecEnabled.override(false);
 	fbneo_emulator_diag("Emulator::init FBNEO_FORCE_INTERPRETER: skipping Get_Sh4Recompiler/recompiler->Init DynarecEnabled=%d", config::DynarecEnabled ? 1 : 0);
 #endif
+
 	INFO_LOG(INTERPRETER, "Using Interpreter");
 	fbneo_emulator_diag("Emulator::init before Get_Sh4Interpreter");
 	interpreter = Get_Sh4Interpreter();
@@ -569,6 +573,7 @@ void Emulator::init()
 	fbneo_emulator_diag("Emulator::init before interpreter->Init");
 	interpreter->Init();
 	fbneo_emulator_diag("Emulator::init after interpreter->Init");
+
 	state = Init;
 	fbneo_emulator_diag("Emulator::init leave state=%d", (int)state);
 }
@@ -576,7 +581,7 @@ void Emulator::init()
 Sh4Executor *Emulator::getSh4Executor()
 {
 #if FEAT_SHREC != DYNAREC_NONE
-	if(config::DynarecEnabled)
+	if (config::DynarecEnabled)
 	{
 		fbneo_emulator_diag("Emulator::getSh4Executor FBNEO_FORCE_INTERPRETER: dynarec was requested; overriding to interpreter");
 		config::DynarecEnabled.override(false);
@@ -976,8 +981,9 @@ void loadGameSpecificSettings()
 	// Reload per-game settings
 	config::Settings::instance().load(true);
 
-	// FBNeo force-interpreter build: keep SH4 dynarec disabled after per-game options reload.
+#if FEAT_SHREC != DYNAREC_NONE
 	config::DynarecEnabled.override(false);
+#endif
 	fbneo_emulator_diag("loadGameSpecificSettings FBNEO_FORCE_INTERPRETER: DynarecEnabled forced to 0");
 
 	if (config::GGPOEnable || settings.raHardcoreMode)

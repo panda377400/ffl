@@ -110,6 +110,13 @@ static int   g_hw_ready = 0;
 static int   g_hw_reset_called = 0;
 static struct retro_hw_render_callback g_hw_cb;
 static std::vector<uint32_t> g_hw_readback;
+static std::vector<uint32_t> g_hw_readback_tmp;
+static int g_hw_client_w = 0;
+static int g_hw_client_h = 0;
+
+#ifndef GL_BGRA
+#define GL_BGRA 0x80E1
+#endif
 
 static LRESULT CALLBACK fbfc_hw_wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 {
@@ -121,6 +128,28 @@ static bool fbfc_hw_make_current(void)
     if (!g_hw_hdc || !g_hw_hglrc) return false;
     return wglMakeCurrent(g_hw_hdc, g_hw_hglrc) ? true : false;
 }
+
+static void fbfc_hw_resize_client(int w, int h)
+{
+	if (!g_hw_hwnd || w <= 0 || h <= 0 || w > 8192 || h > 8192)
+		return;
+	if (g_hw_client_w == w && g_hw_client_h == h)
+		return;
+
+	/*
+	 * The hidden WGL window is never shown, but its client area must match the
+	 * libretro geometry exactly.  A WS_OVERLAPPEDWINDOW created as 640x480 has a
+	 * smaller client rect, so glReadPixels(0, 0, 640, 480) reads outside the
+	 * drawable area and the FBNeo blitter receives a shifted/cropped frame.
+	 */
+	SetWindowPos(g_hw_hwnd, NULL, 0, 0, w, h,
+		SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_HIDEWINDOW);
+	g_hw_client_w = w;
+	g_hw_client_h = h;
+	if (g_hw_ready && fbfc_hw_make_current())
+		glViewport(0, 0, w, h);
+}
+
 
 static bool fbfc_hw_init_window(void)
 {
@@ -143,7 +172,7 @@ static bool fbfc_hw_init_window(void)
     }
 
     g_hw_hwnd = CreateWindowExA(0, "FBNeoFlycastHiddenWGL", "FBNeo Flycast WGL",
-                                WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT,
+                                WS_POPUP, 0, 0,
                                 640, 480, NULL, NULL, inst, NULL);
     if (!g_hw_hwnd) {
         fbfc_log("WGL: CreateWindow failed err=%lu", (unsigned long)GetLastError());
@@ -200,7 +229,10 @@ static bool fbfc_hw_init_window(void)
         return false;
     }
 
-    g_hw_ready = 1;
+    g_hw_client_w = 0;
+	g_hw_client_h = 0;
+	g_hw_ready = 1;
+	fbfc_hw_resize_client(640, 480);
     fbfc_log("WGL: hidden OpenGL context created vendor=%s renderer=%s version=%s",
              glGetString(GL_VENDOR) ? (const char*)glGetString(GL_VENDOR) : "<null>",
              glGetString(GL_RENDERER) ? (const char*)glGetString(GL_RENDERER) : "<null>",
@@ -247,6 +279,7 @@ static void fbfc_hw_destroy(void)
     g_hw_reset_called = 0;
     memset(&g_hw_cb, 0, sizeof(g_hw_cb));
     g_hw_readback.clear();
+	g_hw_readback_tmp.clear();
 
     if (g_hw_hglrc) {
         wglMakeCurrent(NULL, NULL);
@@ -263,10 +296,13 @@ static void fbfc_hw_destroy(void)
     }
     if (g_hw_ready) fbfc_log("WGL: hidden OpenGL context destroyed");
     g_hw_ready = 0;
+	g_hw_client_w = 0;
+	g_hw_client_h = 0;
 }
 #else
 static void fbfc_hw_call_context_reset_if_needed(void) {}
 static void fbfc_hw_destroy(void) {}
+static void fbfc_hw_resize_client(int, int) {}
 #endif
 
 static void make_dir_quiet(const std::string& path)
@@ -300,7 +336,7 @@ static void reset_debug_log(void)
         if (fseek(f, 0, SEEK_END) == 0) pos = ftell(f);
         if (pos <= 0) {
             fputs("fbneo/flycast debug log\n", f);
-            fputs("adapter: safe retro_init variant; no watchdog/corethread, no adapter VEH, no log/perf callbacks\n", f);
+            fputs("adapter: v3 safe variant; log/perf callbacks, exact WGL client, BGRA readback, dynarec disabled\n", f);
         }
         fputs("\n---- fbfc session begin ----\n", f);
         fclose(f);
@@ -550,31 +586,25 @@ static void lr_video_cb(const void* data, unsigned width, unsigned height, size_
         }
         int w = width ? (int)width : g_width;
         int h = height ? (int)height : g_height;
-        if (w <= 0 || h <= 0 || w > 8192 || h > 8192) return;
+        if (w <= 0 || h <= 0 || w > 8192 || h > 8192) return;		fbfc_hw_resize_client(w, h);
 
-        std::vector<unsigned char> rgba((size_t)w * (size_t)h * 4u);
-        g_hw_readback.resize((size_t)w * (size_t)h);
-        glPixelStorei(GL_PACK_ALIGNMENT, 1);
-        glReadBuffer(GL_BACK);
-        glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, rgba.data());
+		g_hw_readback_tmp.resize((size_t)w * (size_t)h);
+		g_hw_readback.resize((size_t)w * (size_t)h);
+		glPixelStorei(GL_PACK_ALIGNMENT, 1);
+		glReadBuffer(GL_BACK);
+		glReadPixels(0, 0, w, h, GL_BGRA, GL_UNSIGNED_BYTE, g_hw_readback_tmp.data());
+		GLenum err = glGetError();
+		if (err != GL_NO_ERROR) {
+			fbfc_log("WGL: glReadPixels GL_BGRA failed err=0x%04x", (unsigned)err);
+			return;
+		}
 
-        GLenum err = glGetError();
-        if (err != GL_NO_ERROR) {
-            fbfc_log("WGL: glReadPixels GL_RGBA failed err=0x%04x", (unsigned)err);
-            return;
-        }
-
-        for (int y = 0; y < h; y++) {
-            const unsigned char* src = &rgba[(size_t)(h - 1 - y) * (size_t)w * 4u];
-            uint32_t* dst = &g_hw_readback[(size_t)y * (size_t)w];
-            for (int x = 0; x < w; x++) {
-                unsigned r = src[x * 4 + 0];
-                unsigned g = src[x * 4 + 1];
-                unsigned b = src[x * 4 + 2];
-                dst[x] = 0xff000000u | (r << 16) | (g << 8) | b;
-            }
-        }
-
+		/* OpenGL origin is bottom-left; FBNeo's pBurnDraw is top-left. */
+		for (int y = 0; y < h; y++) {
+			memcpy(&g_hw_readback[(size_t)y * (size_t)w],
+				&g_hw_readback_tmp[(size_t)(h - 1 - y) * (size_t)w],
+				(size_t)w * sizeof(uint32_t));
+		}
         FbneoFlycastVideoFrame frame;
         memset(&frame, 0, sizeof(frame));
         frame.pixels = g_hw_readback.data();
@@ -703,40 +733,13 @@ static retro_time_t lr_perf_get_time_usec(void)
 
 static uint64_t lr_get_cpu_features(void)
 {
-    uint64_t r = 0;
-#if defined(__i386__) || defined(__x86_64__) || defined(_M_IX86) || defined(_M_X64)
-#ifdef RETRO_SIMD_MMX
-    r |= RETRO_SIMD_MMX;
-#endif
-#ifdef RETRO_SIMD_CMOV
-    r |= RETRO_SIMD_CMOV;
-#endif
-#ifdef RETRO_SIMD_SSE
-    r |= RETRO_SIMD_SSE;
-#endif
-#ifdef RETRO_SIMD_SSE2
-    r |= RETRO_SIMD_SSE2;
-#endif
-#if defined(__SSE3__) && defined(RETRO_SIMD_SSE3)
-    r |= RETRO_SIMD_SSE3;
-#endif
-#if defined(__SSSE3__) && defined(RETRO_SIMD_SSSE3)
-    r |= RETRO_SIMD_SSSE3;
-#endif
-#if defined(__SSE4_1__) && defined(RETRO_SIMD_SSE4)
-    r |= RETRO_SIMD_SSE4;
-#endif
-#if defined(__SSE4_2__) && defined(RETRO_SIMD_SSE42)
-    r |= RETRO_SIMD_SSE42;
-#endif
-#if defined(__AVX__) && defined(RETRO_SIMD_AVX)
-    r |= RETRO_SIMD_AVX;
-#endif
-#if defined(__AVX2__) && defined(RETRO_SIMD_AVX2)
-    r |= RETRO_SIMD_AVX2;
-#endif
-#endif
-    return r;
+	/*
+	 * v2 proved that enabling the SH4 dynarec in this embedded FBNeo build can
+	 * crash inside recompiler->Init().  Keep the perf interface available for
+	 * timing/logging, but do not advertise SIMD feature bits from compile-time
+	 * macros as if they were a verified runtime CPUID result.
+	 */
+	return 0;
 }
 
 static void lr_perf_register(struct retro_perf_counter* counter)
@@ -786,7 +789,8 @@ static const FbfcCoreOptionValue g_core_option_values[] = {
     { "flycast_language", "Default" },
     { "flycast_internal_resolution", "640x480" },
     { "flycast_cable_type", "TV (Composite)" },
-    { "flycast_brodcast", "Default" },
+    { "flycast_broadcast", "Default" },
+	{ "reicast_broadcast", "Default" },
     { "flycast_alpha_sorting", "Per-Strip (fast, least accurate)" },
     { "flycast_widescreen_cheats", "Off" },
     { "flycast_widescreen_hack", "Off" },
@@ -808,6 +812,8 @@ static const FbfcCoreOptionValue g_core_option_values[] = {
     { "reicast_enable_dsp", "disabled" },
     { "reicast_region", "Default" },
     { "reicast_language", "Default" },
+	{ "reicast_frame_skipping", "disabled" },
+	{ "reicast_auto_skip_frame", "disabled" },
     { "flycast_cpu_mode", "dynamic_recompiler" },
     { "reicast_cpu_mode", "dynamic_recompiler" },
     { NULL, NULL }
@@ -861,7 +867,11 @@ static bool lr_environment_cb(unsigned cmd, void* data)
             const struct retro_game_geometry* geo = (const struct retro_game_geometry*)data;
             if (geo->base_width) g_width = (int)geo->base_width;
             if (geo->base_height) g_height = (int)geo->base_height;
-            fbfc_log("geometry set: %dx%d", g_width, g_height);
+            #if defined(_WIN32)
+			if (g_hw_ready)
+				fbfc_hw_resize_client(g_width, g_height);
+			#endif
+			fbfc_log("geometry set: %dx%d", g_width, g_height);
         }
         return true;
 
@@ -926,28 +936,35 @@ static bool lr_environment_cb(unsigned cmd, void* data)
 
     case RETRO_ENVIRONMENT_GET_CAN_DUPE:
         if (data) *(bool*)data = true;
-        return true;
+        return true;	case RETRO_ENVIRONMENT_GET_LOG_INTERFACE:
+		if (data) {
+			static struct retro_log_callback log_cb;
+			log_cb.log = lr_log_cb;
+			*(struct retro_log_callback*)data = log_cb;
+			fbfc_log("log interface requested: supplied");
+			return true;
+		}
+		return false;
 
-    case RETRO_ENVIRONMENT_GET_LOG_INTERFACE:
-        /*
-         * Safe-init diagnostic build:
-         * Do not hand Flycast a frontend log callback during retro_init().
-         * This rules out callback re-entry / CRT / file-lock problems while
-         * Flycast initializes LogManager, VMEM, fault handlers and Emulator::init().
-         */
-        fbfc_log("log interface requested: not supplied in safe-init build");
-        return false;
+	case RETRO_ENVIRONMENT_GET_PERF_INTERFACE:
+		if (data) {
+			static struct retro_perf_callback perf_cb;
+			memset(&perf_cb, 0, sizeof(perf_cb));
+			perf_cb.get_time_usec = lr_perf_get_time_usec;
+			perf_cb.get_cpu_features = lr_get_cpu_features;
+			perf_cb.get_perf_counter = lr_perf_get_counter;
+			perf_cb.perf_register = lr_perf_register;
+			perf_cb.perf_start = lr_perf_start;
+			perf_cb.perf_stop = lr_perf_stop;
+			perf_cb.perf_log = lr_perf_log;
+			*(struct retro_perf_callback*)data = perf_cb;
+			fbfc_log("perf interface requested: supplied cpu_features=%016llx",
+				(unsigned long long)lr_get_cpu_features());
+			return true;
+		}
+		return false;
 
-    case RETRO_ENVIRONMENT_GET_PERF_INTERFACE:
-        /*
-         * Also withhold perf callbacks for the same reason. Flycast can run
-         * without them; this keeps retro_init() as close to a null frontend as
-         * possible.
-         */
-        fbfc_log("perf interface requested: not supplied in safe-init build");
-        return false;
-
-    case RETRO_ENVIRONMENT_SET_KEYBOARD_CALLBACK:
+	case RETRO_ENVIRONMENT_SET_KEYBOARD_CALLBACK:
         if (data) {
             const struct retro_keyboard_callback* kb = (const struct retro_keyboard_callback*)data;
             g_keyboard_cb = kb->callback ? kb->callback : lr_keyboard_dummy;
