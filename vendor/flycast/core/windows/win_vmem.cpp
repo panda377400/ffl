@@ -3,21 +3,48 @@
 #include "oslib/virtmem.h"
 
 #include <windows.h>
+#include <vector>
+
 #include "dynlink.h"
 
 namespace virtmem
 {
 
-// Implementation of the vmem related function for Windows platforms.
-// For now this probably does some assumptions on the CPU/platform.
+// Windows vmem backend for Flycast.
+//
+// FBNeo reload note:
+// FBNeo can unload one Atomiswave game and load another in the same process.
+// Flycast's Windows vmem code was originally written for a simpler lifecycle.
+// During same-process reload, some old virtual-memory regions may already be
+// released/unmapped by the time addrspace tries to lock/unlock them again.
+// In standalone Flycast this is fatal. In the FBNeo integration it prevents
+// loading the next game. Therefore this backend is intentionally re-entrant and
+// tolerant of ERROR_INVALID_ADDRESS during lock/unlock cleanup.
+//
+// This is still not the final performance fix. It prevents reload crashes.
+// Performance still requires removing FBNEO_FORCE_INTERPRETER in emulator.cpp.
 
-// The implementation allows it to be empty (that is, to not lock memory).
+static bool is_invalid_address_error(DWORD err)
+{
+	return err == ERROR_INVALID_ADDRESS || err == ERROR_INVALID_PARAMETER;
+}
 
 bool region_lock(void *start, size_t len)
 {
 	DWORD old;
 	if (!VirtualProtect(start, len, PAGE_READONLY, &old)) {
-		ERROR_LOG(VMEM, "VirtualProtect(%p, %x, RO) failed: %d", start, (u32)len, GetLastError());
+		DWORD err = GetLastError();
+
+		// FBNeo same-process reload can ask us to protect an address range that
+		// was already released during previous unload/term cleanup. Treat that
+		// as an idempotent cleanup case instead of aborting the emulator.
+		if (is_invalid_address_error(err)) {
+			WARN_LOG(VMEM, "FBNeo reload guard: ignoring VirtualProtect(%p, %x, RO) failure: %d",
+				start, (u32)len, err);
+			return false;
+		}
+
+		ERROR_LOG(VMEM, "VirtualProtect(%p, %x, RO) failed: %d", start, (u32)len, err);
 		die("VirtualProtect(ro) failed");
 	}
 	return true;
@@ -27,7 +54,19 @@ bool region_unlock(void *start, size_t len)
 {
 	DWORD old;
 	if (!VirtualProtect(start, len, PAGE_READWRITE, &old)) {
-		ERROR_LOG(VMEM, "VirtualProtect(%p, %x, RW) failed: %d", start, (u32)len, GetLastError());
+		DWORD err = GetLastError();
+
+		// Critical FBNeo reload guard:
+		// The second game can re-enter addrspace/vmem with stale ranges from the
+		// first game's teardown. ERROR_INVALID_ADDRESS here means the range is
+		// already gone; aborting causes the observed second-load crash.
+		if (is_invalid_address_error(err)) {
+			WARN_LOG(VMEM, "FBNeo reload guard: ignoring VirtualProtect(%p, %x, RW) failure: %d",
+				start, (u32)len, err);
+			return false;
+		}
+
+		ERROR_LOG(VMEM, "VirtualProtect(%p, %x, RW) failed: %d", start, (u32)len, err);
 		die("VirtualProtect(rw) failed");
 	}
 	return true;
@@ -41,27 +80,62 @@ static void *mem_region_reserve(void *start, size_t len)
 	return VirtualAlloc(start, len, type, PAGE_NOACCESS);
 }
 
-static bool mem_region_release(void *start, size_t len)
+static bool mem_region_release(void *start, size_t)
 {
 	return VirtualFree(start, 0, MEM_RELEASE);
 }
 
 HANDLE mem_handle = INVALID_HANDLE_VALUE;
 static HANDLE mem_handle2 = INVALID_HANDLE_VALUE;
-static char * base_alloc = NULL;
+static char *base_alloc = nullptr;
 
 static std::vector<void *> unmapped_regions;
 static std::vector<void *> mapped_regions;
-
-// Implement vmem initialization for RAM, ARAM, VRAM and SH4 context, fpcb etc.
 
 #ifdef TARGET_UWP
 static WinLibLoader kernel32("Kernel32.dll");
 static LPVOID(WINAPI *MapViewOfFileEx)(HANDLE, DWORD, DWORD, DWORD, SIZE_T, LPVOID);
 #endif
 
-// Please read the POSIX implementation for more information. On Windows this is
-// rather straightforward.
+static void close_handle_if_valid(HANDLE& h)
+{
+	if (h != INVALID_HANDLE_VALUE && h != nullptr) {
+		CloseHandle(h);
+		h = INVALID_HANDLE_VALUE;
+	}
+}
+
+static void release_all_mappings()
+{
+	for (void *p : mapped_regions) {
+		if (p)
+			UnmapViewOfFile(p);
+	}
+	mapped_regions.clear();
+
+	for (void *p : unmapped_regions) {
+		if (p)
+			mem_region_release(p, 0);
+	}
+	unmapped_regions.clear();
+}
+
+void destroy()
+{
+	release_all_mappings();
+
+	if (base_alloc != nullptr) {
+		VirtualFree(base_alloc, 0, MEM_RELEASE);
+		base_alloc = nullptr;
+	}
+
+	close_handle_if_valid(mem_handle);
+	close_handle_if_valid(mem_handle2);
+
+	unmapped_regions.shrink_to_fit();
+	mapped_regions.shrink_to_fit();
+}
+
 bool init(void **vmem_base_addr, void **sh4rcb_addr, size_t ramSize)
 {
 #ifdef TARGET_UWP
@@ -72,169 +146,176 @@ bool init(void **vmem_base_addr, void **sh4rcb_addr, size_t ramSize)
 			return false;
 	}
 #endif
+
+	// Same-process reload must begin from a clean backend state.
+	destroy();
+
 	unmapped_regions.reserve(32);
 	mapped_regions.reserve(32);
 
-	// First let's try to allocate the in-memory file
 	mem_handle = CreateFileMapping(INVALID_HANDLE_VALUE, 0, PAGE_READWRITE, 0, (DWORD)ramSize, 0);
+	if (mem_handle == nullptr || mem_handle == INVALID_HANDLE_VALUE) {
+		mem_handle = INVALID_HANDLE_VALUE;
+		ERROR_LOG(VMEM, "CreateFileMapping(%x) failed: %d", (u32)ramSize, GetLastError());
+		return false;
+	}
 
-	// Now allocate the actual address space (it will be 64KB aligned on windows).
 	unsigned memsize = 512_MB + sizeof(Sh4RCB) + ARAM_SIZE_MAX;
-	base_alloc = (char*)mem_region_reserve(NULL, memsize);
+	base_alloc = (char*)mem_region_reserve(nullptr, memsize);
+	if (base_alloc == nullptr) {
+		ERROR_LOG(VMEM, "VirtualAlloc reserve base failed: %d", GetLastError());
+		destroy();
+		return false;
+	}
 
-	// Calculate pointers now
 	*sh4rcb_addr = &base_alloc[0];
 	*vmem_base_addr = &base_alloc[sizeof(Sh4RCB)];
 
+	// Recreate the reservation at the exact calculated ranges below.
 	VirtualFree(base_alloc, 0, MEM_RELEASE);
-	// Map the SH4CB block too
+
 	void *base_ptr = VirtualAlloc(base_alloc, sizeof(Sh4RCB), MEM_RESERVE, PAGE_NOACCESS);
-	verify(base_ptr == base_alloc);
-	// Map the rest of the context
-	void *cntx_ptr = VirtualAlloc((u8*)p_sh4rcb + sizeof(p_sh4rcb->fpcb), sizeof(Sh4RCB) - sizeof(p_sh4rcb->fpcb), MEM_COMMIT, PAGE_READWRITE);
-	verify(cntx_ptr == (u8*)p_sh4rcb + sizeof(p_sh4rcb->fpcb));
+	if (base_ptr != base_alloc) {
+		ERROR_LOG(VMEM, "VirtualAlloc reserve Sh4RCB failed expected=%p got=%p err=%d",
+			base_alloc, base_ptr, GetLastError());
+		destroy();
+		return false;
+	}
 
-	// Reserve the rest of the memory but don't commit it
+	void *cntx_ptr = VirtualAlloc((u8*)p_sh4rcb + sizeof(p_sh4rcb->fpcb),
+		sizeof(Sh4RCB) - sizeof(p_sh4rcb->fpcb), MEM_COMMIT, PAGE_READWRITE);
+	if (cntx_ptr != (u8*)p_sh4rcb + sizeof(p_sh4rcb->fpcb)) {
+		ERROR_LOG(VMEM, "VirtualAlloc commit Sh4RCB failed expected=%p got=%p err=%d",
+			(u8*)p_sh4rcb + sizeof(p_sh4rcb->fpcb), cntx_ptr, GetLastError());
+		destroy();
+		return false;
+	}
+
 	void *ptr = VirtualAlloc(*vmem_base_addr, memsize - sizeof(Sh4RCB), MEM_RESERVE, PAGE_NOACCESS);
-	verify(ptr == *vmem_base_addr);
-	unmapped_regions.push_back(ptr);
+	if (ptr != *vmem_base_addr) {
+		ERROR_LOG(VMEM, "VirtualAlloc reserve vmem failed expected=%p got=%p err=%d",
+			*vmem_base_addr, ptr, GetLastError());
+		destroy();
+		return false;
+	}
 
+	unmapped_regions.push_back(ptr);
 	return true;
 }
 
-// Just tries to wipe as much as possible in the relevant area.
-void destroy() {
-	VirtualFree(base_alloc, 0, MEM_RELEASE);
-	CloseHandle(mem_handle);
-}
-
-// Resets a chunk of memory by deleting its data and setting its protection back.
-void reset_mem(void *ptr, unsigned size_bytes) {
+void reset_mem(void *ptr, unsigned size_bytes)
+{
+	if (!ptr || !size_bytes)
+		return;
 	VirtualFree(ptr, size_bytes, MEM_DECOMMIT);
 }
 
-// Allocates a bunch of memory (page aligned and page-sized)
-void ondemand_page(void *address, unsigned size_bytes) {
+void ondemand_page(void *address, unsigned size_bytes)
+{
 	void *p = VirtualAlloc(address, size_bytes, MEM_COMMIT, PAGE_READWRITE);
 	verify(p != nullptr);
 }
 
-/// Creates mappings to the underlying file including mirroring sections
-void create_mappings(const Mapping *vmem_maps, unsigned nummaps) {
-	// Since this is tricky to get right in Windows (in posix one can just unmap sections and remap later)
-	// we unmap the whole thing only to remap it later.
-	// Unmap the whole section
-	for (void *p : mapped_regions)
-		UnmapViewOfFile(p);
-	mapped_regions.clear();
-	for (void *p : unmapped_regions)
-		mem_region_release(p, 0);
-	unmapped_regions.clear();
+void create_mappings(const Mapping *vmem_maps, unsigned nummaps)
+{
+	release_all_mappings();
 
 	for (unsigned i = 0; i < nummaps; i++)
 	{
 		size_t address_range_size = vmem_maps[i].end_address - vmem_maps[i].start_address;
 		DWORD protection = vmem_maps[i].allow_writes ? (FILE_MAP_READ | FILE_MAP_WRITE) : FILE_MAP_READ;
 
-		if (!vmem_maps[i].memsize) {
-			// Unmapped stuff goes with a protected area or memory. Prevent anything from allocating here
-			void *ptr = VirtualAlloc(&addrspace::ram_base[vmem_maps[i].start_address], address_range_size, MEM_RESERVE, PAGE_NOACCESS);
-			verify(ptr == &addrspace::ram_base[vmem_maps[i].start_address]);
-			unmapped_regions.push_back(ptr);
+		if (!vmem_maps[i].memsize)
+		{
+			void *ptr = VirtualAlloc(&addrspace::ram_base[vmem_maps[i].start_address],
+				address_range_size, MEM_RESERVE, PAGE_NOACCESS);
+			if (ptr == &addrspace::ram_base[vmem_maps[i].start_address])
+				unmapped_regions.push_back(ptr);
+			else
+				WARN_LOG(VMEM, "FBNeo reload guard: reserve unmapped region failed addr=%p size=%x got=%p err=%d",
+					&addrspace::ram_base[vmem_maps[i].start_address], (u32)address_range_size, ptr, GetLastError());
 		}
-		else {
-			// Calculate the number of mirrors
+		else
+		{
 			unsigned num_mirrors = (unsigned)(address_range_size / vmem_maps[i].memsize);
 			verify((address_range_size % vmem_maps[i].memsize) == 0 && num_mirrors >= 1);
 
-			// Remap the views one by one
-			for (unsigned j = 0; j < num_mirrors; j++) {
+			for (unsigned j = 0; j < num_mirrors; j++)
+			{
 				size_t offset = vmem_maps[i].start_address + j * vmem_maps[i].memsize;
-
-				void *ptr = MapViewOfFileEx(mem_handle, protection, 0, (DWORD)vmem_maps[i].memoffset,
-				                    vmem_maps[i].memsize, &addrspace::ram_base[offset]);
-				verify(ptr == &addrspace::ram_base[offset]);
-				mapped_regions.push_back(ptr);
+				void *ptr = MapViewOfFileEx(mem_handle, protection, 0,
+					(DWORD)vmem_maps[i].memoffset, vmem_maps[i].memsize,
+					&addrspace::ram_base[offset]);
+				if (ptr == &addrspace::ram_base[offset])
+					mapped_regions.push_back(ptr);
+				else
+					WARN_LOG(VMEM, "FBNeo reload guard: MapViewOfFileEx failed addr=%p size=%x got=%p err=%d",
+						&addrspace::ram_base[offset], (u32)vmem_maps[i].memsize, ptr, GetLastError());
 			}
 		}
 	}
 }
 
-template<typename Mapper>
+template<class Mapper>
 static void *prepare_jit_block_template(size_t size, Mapper mapper)
 {
-	// Several issues on Windows: can't protect arbitrary pages due to (I guess) the way
-	// kernel tracks mappings, so only stuff that has been allocated with VirtualAlloc can be
-	// protected (the entire allocation IIUC).
-
-	// Strategy: Allocate a new region. Protect it properly.
-	// More issues: the area should be "close" to the .text stuff so that code gen works.
-	// Remember that on x64 we have 4 byte jump/load offset immediates, no issues on x86 :D
-
-	// Take this function addr as reference.
 	uintptr_t base_addr = reinterpret_cast<uintptr_t>(&init) & ~0xFFFFF;
 
-	// Probably safe to assume reicast code is <200MB (today seems to be <16MB on every platform I've seen).
-	for (uintptr_t i = 0; i < 1800_MB; i += 1_MB) {  // Some arbitrary step size.
+	for (uintptr_t i = 0; i < 1800_MB; i += 1_MB)
+	{
 		uintptr_t try_addr_above = base_addr + i;
 		uintptr_t try_addr_below = base_addr - i;
 
-		// We need to make sure there's no address wrap around the end of the addrspace (meaning: int overflow).
-		if (try_addr_above != 0 && try_addr_above > base_addr) {
+		if (try_addr_above != 0 && try_addr_above > base_addr)
+		{
 			void *ptr = mapper((void*)try_addr_above, size);
 			if (ptr)
 				return ptr;
 		}
-		if (try_addr_below != 0 && try_addr_below < base_addr) {
+
+		if (try_addr_below != 0 && try_addr_below < base_addr)
+		{
 			void *ptr = mapper((void*)try_addr_below, size);
 			if (ptr)
 				return ptr;
 		}
 	}
-	return NULL;
+	return nullptr;
 }
 
 static void* mem_alloc(void *addr, size_t size)
 {
 #ifdef TARGET_UWP
-	// rwx is not allowed. Need to switch between r-x and rw-
 	return VirtualAlloc(addr, size, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
 #else
 	return VirtualAlloc(addr, size, MEM_RESERVE | MEM_COMMIT, PAGE_EXECUTE_READWRITE);
 #endif
 }
 
-// Prepares the code region for JIT operations, thus marking it as RWX
 bool prepare_jit_block(void *, size_t size, void **code_area_rwx)
 {
-	// Get the RWX page close to the code_area
 	void *ptr = prepare_jit_block_template(size, mem_alloc);
 	if (!ptr)
 		return false;
-
 	*code_area_rwx = ptr;
 	INFO_LOG(DYNAREC, "Found code area at %p, not too far away from %p", *code_area_rwx, &init);
-
-	// We should have found some area in the addrspace, after all size is ~tens of megabytes.
-	// Pages are already RWX, all done
 	return true;
 }
 
 void release_jit_block(void *code_area, size_t)
 {
-	VirtualFree(code_area, 0, MEM_RELEASE);
+	if (code_area)
+		VirtualFree(code_area, 0, MEM_RELEASE);
 }
 
 static void* mem_file_map(void *addr, size_t size)
 {
-	// Maps the entire file at the specified addr.
 	void *ptr = VirtualAlloc(addr, size, MEM_RESERVE, PAGE_NOACCESS);
 	if (!ptr)
-		return NULL;
+		return nullptr;
 	VirtualFree(ptr, 0, MEM_RELEASE);
 	if (ptr != addr)
-		return NULL;
-
+		return nullptr;
 #ifndef TARGET_UWP
 	return MapViewOfFileEx(mem_handle2, FILE_MAP_READ | FILE_MAP_EXECUTE, 0, 0, size, addr);
 #else
@@ -242,39 +323,40 @@ static void* mem_file_map(void *addr, size_t size)
 #endif
 }
 
-// Use two addr spaces: need to remap something twice, therefore use CreateFileMapping()
 bool prepare_jit_block(void *, size_t size, void** code_area_rw, ptrdiff_t* rx_offset)
 {
+	close_handle_if_valid(mem_handle2);
 	mem_handle2 = CreateFileMapping(INVALID_HANDLE_VALUE, 0, PAGE_EXECUTE_READWRITE, 0, (DWORD)size, 0);
+	if (mem_handle2 == nullptr || mem_handle2 == INVALID_HANDLE_VALUE) {
+		mem_handle2 = INVALID_HANDLE_VALUE;
+		ERROR_LOG(VMEM, "CreateFileMapping JIT(%x) failed: %d", (u32)size, GetLastError());
+		return false;
+	}
 
-	// Get the RX page close to the code_area
 	void* ptr_rx = prepare_jit_block_template(size, mem_file_map);
 	if (!ptr_rx)
 		return false;
 
-	// Ok now we just remap the RW segment at any position (dont' care).
 #ifndef TARGET_UWP
-	void* ptr_rw = MapViewOfFileEx(mem_handle2, FILE_MAP_READ | FILE_MAP_WRITE, 0, 0, size, NULL);
+	void* ptr_rw = MapViewOfFileEx(mem_handle2, FILE_MAP_READ | FILE_MAP_WRITE, 0, 0, size, nullptr);
 #else
 	void* ptr_rw = MapViewOfFileFromApp(mem_handle2, FILE_MAP_READ | FILE_MAP_WRITE, 0, size);
 #endif
 
 	*code_area_rw = ptr_rw;
 	*rx_offset = (char*)ptr_rx - (char*)ptr_rw;
-	INFO_LOG(DYNAREC, "Info: Using NO_RWX mode, rx ptr: %p, rw ptr: %p, offset: %lu", ptr_rx, ptr_rw, (unsigned long)*rx_offset);
-
-	return (ptr_rw != NULL);
+	INFO_LOG(DYNAREC, "Info: Using NO_RWX mode, rx ptr: %p, rw ptr: %p, offset: %lu",
+		ptr_rx, ptr_rw, (unsigned long)*rx_offset);
+	return ptr_rw != nullptr;
 }
 
 void release_jit_block(void *code_area1, void *code_area2, size_t)
 {
-	UnmapViewOfFile(code_area1);
-	UnmapViewOfFile(code_area2);
-	// FIXME the same handle is used for all allocations, and thus leaks.
-	// And the last opened handle is closed multiple times.
-	// But windows doesn't need separate RW and RX areas except perhaps UWP
-	// instead of switching back and forth between RX and RW
-	CloseHandle(mem_handle2);
+	if (code_area1)
+		UnmapViewOfFile(code_area1);
+	if (code_area2)
+		UnmapViewOfFile(code_area2);
+	close_handle_if_valid(mem_handle2);
 }
 
 void jit_set_exec(void* code, size_t size, bool enable)
@@ -282,29 +364,28 @@ void jit_set_exec(void* code, size_t size, bool enable)
 #ifdef TARGET_UWP
 	DWORD old;
 	if (!VirtualProtect(code, size, enable ? PAGE_EXECUTE_READ : PAGE_READWRITE, &old)) {
-		ERROR_LOG(VMEM, "VirtualProtect(%p, %x, %s) failed: %d", code, (u32)size, enable ? "RX" : "RW", GetLastError());
+		DWORD err = GetLastError();
+		ERROR_LOG(VMEM, "VirtualProtect(%p, %x, %s) failed: %d",
+			code, (u32)size, enable ? "RX" : "RW", err);
 		die("VirtualProtect(rx/rw) failed");
 	}
 #endif
 }
 
 #if HOST_CPU == CPU_ARM64 || HOST_CPU == CPU_ARM
-static void Arm_Arm64_CacheFlush(void *start, void *end) {
-	if (start == end) {
+static void Arm_Arm64_CacheFlush(void *start, void *end)
+{
+	if (start == end)
 		return;
-	}
-
 	FlushInstructionCache(GetCurrentProcess(), start, (uintptr_t)end - (uintptr_t)start);
 }
 
-void flush_cache(void *icache_start, void *icache_end, void *dcache_start, void *dcache_end) {
+void flush_cache(void *icache_start, void *icache_end, void *dcache_start, void *dcache_end)
+{
 	Arm_Arm64_CacheFlush(dcache_start, dcache_end);
-
-	// Dont risk it and flush and invalidate icache&dcache for both ranges just in case.
-	if (icache_start != dcache_start) {
+	if (icache_start != dcache_start)
 		Arm_Arm64_CacheFlush(icache_start, icache_end);
-	}
 }
 #endif
 
-}	// namespace virtmem
+} // namespace virtmem
